@@ -1,17 +1,19 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { MainLayout } from './components/MainLayout';
 import { useInterview } from './hooks/useInterview';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useAudioCapture } from './hooks/useAudioCapture';
+import type { SpeakerRole } from './types';
 import './styles/global.css';
 import './styles/animations.css';
 
 function App() {
   const interview = useInterview();
   const audioStartedRef = useRef(false);
+  const [noteContent, setNoteContent] = useState('');
 
   const handleWSMessage = useCallback((data: any) => {
-    if (data.type === 'partial' || data.type === 'sentence') {
+    if (data.type === 'partial' || data.type === 'sentence' || data.type === 'role_switched') {
       interview.handleASRResult(data);
     } else if (data.type === 'analysis_stream' || data.type === 'analysis_complete') {
       interview.handleAnalysisStream(data);
@@ -34,7 +36,6 @@ function App() {
   const handleStart = useCallback(async () => {
     if (!interview.sessionId) return;
     ws.connect();
-    // Small delay for WS to connect before starting audio
     await new Promise((r) => setTimeout(r, 300));
     await audio.start();
     audioStartedRef.current = true;
@@ -66,24 +67,36 @@ function App() {
     interview.submitAnswer();
   }, [ws.send, interview.submitAnswer]);
 
+  const handleSwitchRole = useCallback((role: SpeakerRole) => {
+    interview.switchRole(role);
+    ws.send({ type: 'control', action: 'switch_role', role });
+  }, [interview.switchRole, ws.send]);
+
   return (
     <MainLayout
       candidate={interview.candidate}
       sessionId={interview.sessionId}
       status={interview.status}
+      currentRole={interview.currentRole}
       transcript={interview.transcript}
       currentPartial={interview.currentPartial}
-      currentQuestion={interview.currentQuestion}
       analysis={interview.analysis}
       analysisRaw={interview.analysisRaw}
       isAnalyzing={interview.isAnalyzing}
+      interviewQuestions={interview.interviewQuestions}
+      isGeneratingQuestions={interview.isGeneratingQuestions}
+      activeQuestionIndex={interview.activeQuestionIndex}
+      noteContent={noteContent}
+      onNoteChange={setNoteContent}
       onUploadSuccess={interview.onUploadSuccess}
-      onQuestionChange={interview.setCurrentQuestion}
+      onSwitchRole={handleSwitchRole}
       onStart={handleStart}
       onPause={handlePause}
       onResume={handleResume}
       onStop={handleStop}
       onSubmitAnswer={handleSubmitAnswer}
+      onGenerateQuestions={interview.generateQuestions}
+      onSelectQuestion={interview.setActiveQuestionIndex}
     />
   );
 }

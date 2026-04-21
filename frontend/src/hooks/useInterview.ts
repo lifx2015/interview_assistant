@@ -3,28 +3,28 @@ import type {
   CandidateInfo,
   InterviewStatus,
   AnalysisResult,
+  SpeakerRole,
+  TranscriptEntry,
+  InterviewQuestion,
   QARecord,
 } from '../types';
-
-interface TranscriptEntry {
-  id: number;
-  text: string;
-  isFinal: boolean;
-  timestamp: number;
-}
 
 export function useInterview() {
   const [status, setStatus] = useState<InterviewStatus>('idle');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<CandidateInfo | null>(null);
+  const [currentRole, setCurrentRole] = useState<SpeakerRole>('interviewer');
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [currentPartial, setCurrentPartial] = useState('');
-  const [currentQuestion, setCurrentQuestion] = useState('');
-  const [currentAnswer, setCurrentAnswer] = useState('');
+  const [interviewerText, setInterviewerText] = useState('');
+  const [candidateText, setCandidateText] = useState('');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [analysisRaw, setAnalysisRaw] = useState('');
   const [qaHistory, setQaHistory] = useState<QARecord[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
+  const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(-1);
 
   const sentenceIdRef = useRef(0);
 
@@ -35,13 +35,20 @@ export function useInterview() {
       sentenceIdRef.current += 1;
       const entry: TranscriptEntry = {
         id: sentenceIdRef.current,
+        role: data.role || 'interviewer',
         text: data.text,
         isFinal: true,
         timestamp: Date.now(),
       };
       setTranscript((prev) => [...prev, entry]);
-      setCurrentAnswer((prev) => prev + data.text);
+      if (entry.role === 'interviewer') {
+        setInterviewerText((prev) => prev + data.text);
+      } else {
+        setCandidateText((prev) => prev + data.text);
+      }
       setCurrentPartial('');
+    } else if (data.type === 'role_switched') {
+      setCurrentRole(data.role);
     }
   }, []);
 
@@ -66,11 +73,16 @@ export function useInterview() {
     }
   }, []);
 
+  const switchRole = useCallback((role: SpeakerRole) => {
+    setCurrentRole(role);
+  }, []);
+
   const startInterview = useCallback(() => {
     setStatus('recording');
     setTranscript([]);
     setCurrentPartial('');
-    setCurrentAnswer('');
+    setInterviewerText('');
+    setCandidateText('');
     setAnalysis(null);
     setAnalysisRaw('');
   }, []);
@@ -88,17 +100,25 @@ export function useInterview() {
   }, []);
 
   const submitAnswer = useCallback(() => {
-    if (currentAnswer.trim()) {
-      setQaHistory((prev) => [
-        ...prev,
-        { question: currentQuestion, answer: currentAnswer, analysis: analysisRaw },
-      ]);
-    }
     setIsAnalyzing(true);
     setStatus('analyzing');
-    setCurrentAnswer('');
-    setTranscript([]);
-  }, [currentAnswer, currentQuestion, analysisRaw]);
+  }, []);
+
+  const generateQuestions = useCallback(async () => {
+    if (!sessionId) return;
+    setIsGeneratingQuestions(true);
+    try {
+      const res = await fetch(`/api/interview/${sessionId}/generate-questions`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setInterviewQuestions(data.questions || []);
+      }
+    } catch (e) {
+      console.error('Failed to generate questions:', e);
+    } finally {
+      setIsGeneratingQuestions(false);
+    }
+  }, [sessionId]);
 
   const onUploadSuccess = useCallback((sid: string, info: CandidateInfo) => {
     setSessionId(sid);
@@ -109,15 +129,20 @@ export function useInterview() {
     status,
     sessionId,
     candidate,
+    currentRole,
     transcript,
     currentPartial,
-    currentQuestion,
-    currentAnswer,
+    interviewerText,
+    candidateText,
     analysis,
     analysisRaw,
     qaHistory,
     isAnalyzing,
-    setCurrentQuestion,
+    interviewQuestions,
+    isGeneratingQuestions,
+    activeQuestionIndex,
+    setActiveQuestionIndex,
+    switchRole,
     handleASRResult,
     handleAnalysisStream,
     startInterview,
@@ -125,6 +150,7 @@ export function useInterview() {
     resumeInterview,
     stopInterview,
     submitAnswer,
+    generateQuestions,
     onUploadSuccess,
   };
 }

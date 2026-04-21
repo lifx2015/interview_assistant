@@ -10,6 +10,7 @@ class CandidateInfo(BaseModel):
     skills: list[str] = []
     projects: list[str] = []
     summary: str = ""
+    risk_points: list[str] = []
 
 
 class ResumeUploadResponse(BaseModel):
@@ -17,27 +18,36 @@ class ResumeUploadResponse(BaseModel):
     candidate: CandidateInfo
 
 
-class ASRResult(BaseModel):
-    type: str  # "partial" | "sentence" | "analysis"
-    text: str = ""
+class InterviewQuestion(BaseModel):
+    question: str
+    dimension: str  # STAR dimension or category
+    focus: str  # what to focus on
+
+
+class GenerateQuestionsResponse(BaseModel):
+    questions: list[InterviewQuestion]
+
+
+class TranscriptEntry(BaseModel):
+    role: str  # "interviewer" | "candidate"
+    text: str
     sentence_id: int = 0
 
 
-class AnalysisRequest(BaseModel):
-    session_id: str
+class QARecord(BaseModel):
     question: str
     answer: str
-    resume_context: str = ""
+    analysis: str = ""
 
 
 class StarFollowUp(BaseModel):
-    dimension: str  # Situation | Task | Action | Result
+    dimension: str
     question: str
     purpose: str
 
 
 class RiskAssessment(BaseModel):
-    risk_level: str  # low | medium | high
+    risk_level: str
     risk_type: str
     description: str
     suggestion: str
@@ -47,8 +57,3 @@ class AnalysisResult(BaseModel):
     star_followups: list[StarFollowUp]
     risk_assessments: list[RiskAssessment]
     overall_comment: str = ""
-
-
-class WSMessage(BaseModel):
-    type: str  # "audio" | "control" | "asr_result" | "analysis_result" | "error"
-    data: str = ""  # base64 audio or JSON string

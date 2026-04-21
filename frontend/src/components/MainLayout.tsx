@@ -1,228 +1,222 @@
-import React from 'react';
-import type { CandidateInfo, InterviewStatus } from '../types';
+import React, { useState, useRef, useCallback } from 'react';
+import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewQuestion } from '../types';
 import { ResumeUploader } from './ResumeUploader';
-import { ResumePanel } from './ResumePanel';
+import { CandidatePanel } from './CandidatePanel';
+import { PDFViewer } from './PDFViewer';
+import { NotePanel } from './NotePanel';
 import { TranscriptPanel } from './TranscriptPanel';
 import { ControlBar } from './ControlBar';
+import { QuestionPanel } from './QuestionPanel';
 import { AnalysisPanel } from './AnalysisPanel';
-import { RecordingIndicator } from './RecordingIndicator';
 
 interface Props {
   candidate: CandidateInfo | null;
   sessionId: string | null;
   status: InterviewStatus;
-  transcript: Array<{ id: number; text: string; isFinal: boolean; timestamp: number }>;
+  currentRole: SpeakerRole;
+  transcript: TranscriptEntry[];
   currentPartial: string;
-  currentQuestion: string;
   analysis: any;
   analysisRaw: string;
   isAnalyzing: boolean;
+  interviewQuestions: InterviewQuestion[];
+  isGeneratingQuestions: boolean;
+  activeQuestionIndex: number;
+  noteContent: string;
+  onNoteChange: (v: string) => void;
+  onSelectQuestion: (index: number) => void;
   onUploadSuccess: (sessionId: string, candidate: CandidateInfo) => void;
-  onQuestionChange: (q: string) => void;
+  onSwitchRole: (role: SpeakerRole) => void;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
   onSubmitAnswer: () => void;
+  onGenerateQuestions: () => void;
 }
 
 export const MainLayout: React.FC<Props> = ({
-  candidate,
-  sessionId,
-  status,
-  transcript,
-  currentPartial,
-  currentQuestion,
-  analysis,
-  analysisRaw,
-  isAnalyzing,
-  onUploadSuccess,
-  onQuestionChange,
-  onStart,
-  onPause,
-  onResume,
-  onStop,
-  onSubmitAnswer,
+  candidate, sessionId, status, currentRole,
+  transcript, currentPartial, analysis, analysisRaw, isAnalyzing,
+  interviewQuestions, isGeneratingQuestions, activeQuestionIndex,
+  noteContent, onNoteChange,
+  onUploadSuccess, onSwitchRole, onStart, onPause, onResume,
+  onStop, onSubmitAnswer, onGenerateQuestions, onSelectQuestion,
 }) => {
+  const [leftWidth, setLeftWidth] = useState(340);
+  const [rightWidth, setRightWidth] = useState(400);
+  const [noteHeight, setNoteHeight] = useState(200);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const centerRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef<'left' | 'right' | 'note' | null>(null);
+
+  const startDrag = useCallback((side: 'left' | 'right' | 'note') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = side;
+    setIsDragging(true);
+    document.body.style.cursor = side === 'note' ? 'row-resize' : 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (dragging.current === 'left' && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setLeftWidth(Math.max(240, Math.min(600, ev.clientX - rect.left)));
+      } else if (dragging.current === 'right' && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setRightWidth(Math.max(280, Math.min(700, rect.right - ev.clientX)));
+      } else if (dragging.current === 'note' && centerRef.current) {
+        const rect = centerRef.current.getBoundingClientRect();
+        const fromBottom = rect.bottom - ev.clientY;
+        setNoteHeight(Math.max(120, Math.min(rect.height - 200, fromBottom)));
+      }
+    };
+
+    const onMouseUp = () => {
+      dragging.current = null;
+      setIsDragging(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, []);
+
   return (
     <div className="main-layout">
       {/* Header */}
       <header className="app-header">
         <div className="header-left">
-          <div className="logo">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+          </svg>
           <h1 className="app-title">AI Interview Assistant</h1>
           <span className="app-subtitle">STAR 行为面试智能分析</span>
         </div>
         <div className="header-right">
-          {status === 'recording' && <RecordingIndicator />}
-          {sessionId && (
-            <span className="session-badge">Session: {sessionId.slice(0, 8)}...</span>
+          {status === 'recording' && (
+            <div className={`rec-badge ${currentRole}`}>
+              <span className="rec-dot" />
+              {currentRole === 'interviewer' ? '面试官说话中' : '候选人回答中'}
+            </div>
+          )}
+          {status === 'paused' && <div className="rec-badge paused">已暂停</div>}
+          {status === 'analyzing' && (
+            <div className="rec-badge analyzing"><span className="rec-dot" />AI 分析中</div>
           )}
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="main-content">
-        {/* Left Panel - Resume */}
-        <aside className="panel-left glow-card">
+      {/* Three-column layout */}
+      <div className="columns" ref={containerRef}>
+        {/* LEFT */}
+        <aside className="col-left glow-card" style={{ width: leftWidth, minWidth: leftWidth }}>
           {candidate ? (
-            <ResumePanel candidate={candidate} />
+            <CandidatePanel candidate={candidate} />
           ) : (
-            <ResumeUploader onUploadSuccess={onUploadSuccess} />
+            <div className="left-empty">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+              </svg>
+              <p>上传简历后显示候选人信息</p>
+            </div>
           )}
         </aside>
 
-        {/* Center Panel - Transcript */}
-        <main className="panel-center glow-card">
-          <TranscriptPanel
-            status={status}
-            transcript={transcript}
-            currentPartial={currentPartial}
-            currentQuestion={currentQuestion}
-            onQuestionChange={onQuestionChange}
-          />
-          <ControlBar
-            status={status}
-            isAnalyzing={isAnalyzing}
-            onStart={onStart}
-            onPause={onPause}
-            onResume={onResume}
-            onStop={onStop}
-            onSubmitAnswer={onSubmitAnswer}
-          />
+        <div className="resize-handle" onMouseDown={startDrag('left')} />
+
+        {/* CENTER */}
+        <main className="col-center" ref={centerRef}>
+          {/* PDF / Upload — with drag shield overlay */}
+          <div className="center-top">
+            {sessionId ? <PDFViewer sessionId={sessionId} /> : <ResumeUploader onUploadSuccess={onUploadSuccess} />}
+            {isDragging && <div className="iframe-shield" />}
+          </div>
+
+          {/* Horizontal resize handle */}
+          <div className="resize-handle-h" onMouseDown={startDrag('note')} />
+
+          {/* Notes */}
+          <div className="center-note glow-card" style={{ height: noteHeight, minHeight: 120 }}>
+            <NotePanel value={noteContent} onChange={onNoteChange} />
+          </div>
+
+          {/* Transcript + Controls */}
+          <div className="center-bottom glow-card">
+            <TranscriptPanel status={status} transcript={transcript} currentPartial={currentPartial} currentRole={currentRole} />
+            <ControlBar status={status} currentRole={currentRole} isAnalyzing={isAnalyzing}
+              onSwitchRole={onSwitchRole} onStart={onStart} onPause={onPause} onResume={onResume}
+              onStop={onStop} onSubmitAnswer={onSubmitAnswer} />
+          </div>
         </main>
 
-        {/* Right Panel - Analysis */}
-        <aside className="panel-right glow-card">
-          {analysis || analysisRaw ? (
-            <AnalysisPanel
-              starFollowups={analysis?.star_followups || []}
-              riskAssessments={analysis?.risk_assessments || []}
-              overallComment={analysis?.overall_comment || ''}
-              rawText={analysisRaw}
-            />
-          ) : (
-            <div className="analysis-empty">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
-                <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-              <p>上传简历并开始录音后</p>
-              <p>AI 将在此生成 STAR 追问与风险评估</p>
-            </div>
-          )}
+        <div className="resize-handle" onMouseDown={startDrag('right')} />
+
+        {/* RIGHT */}
+        <aside className="col-right" style={{ width: rightWidth, minWidth: rightWidth }}>
+          <div className="right-top glow-card">
+            <QuestionPanel questions={interviewQuestions} isGenerating={isGeneratingQuestions}
+              onGenerate={onGenerateQuestions} activeIndex={activeQuestionIndex} onSelectQuestion={onSelectQuestion} />
+          </div>
+          <div className="right-bottom glow-card">
+            <AnalysisPanel starFollowups={analysis?.star_followups || []} riskAssessments={analysis?.risk_assessments || []}
+              overallComment={analysis?.overall_comment || ''} rawText={analysisRaw} />
+          </div>
         </aside>
       </div>
 
       <style>{`
-        .main-layout {
-          display: flex;
-          flex-direction: column;
-          height: 100vh;
-          overflow: hidden;
-        }
+        .main-layout { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
         .app-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 12px 24px;
-          border-bottom: 1px solid var(--border-color);
-          background: rgba(0, 0, 0, 0.3);
-          backdrop-filter: blur(12px);
-          flex-shrink: 0;
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 10px 20px; border-bottom: 1px solid var(--border-color);
+          background: rgba(0,0,0,0.3); backdrop-filter: blur(12px); flex-shrink: 0;
         }
-
-        .header-left {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .logo {
-          display: flex;
-          align-items: center;
-        }
-
+        .header-left { display: flex; align-items: center; gap: 10px; }
         .app-title {
-          font-size: 18px;
-          font-weight: 700;
+          font-size: 16px; font-weight: 700;
           background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
+          -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+        .app-subtitle { font-size: 11px; color: var(--text-muted); padding-left: 10px; border-left: 1px solid var(--border-color); }
+        .header-right { display: flex; align-items: center; gap: 10px; }
+
+        .rec-badge { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 16px; font-size: 11px; font-weight: 600; }
+        .rec-badge.interviewer { background: rgba(0,102,255,0.12); border: 1px solid rgba(0,102,255,0.3); color: #6699ff; }
+        .rec-badge.candidate { background: rgba(255,68,102,0.1); border: 1px solid rgba(255,68,102,0.3); color: var(--accent-red); }
+        .rec-badge.paused { background: rgba(255,170,0,0.1); border: 1px solid rgba(255,170,0,0.3); color: var(--accent-amber); }
+        .rec-badge.analyzing { background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3); color: var(--accent-cyan); }
+        .rec-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse-dot 1s ease-in-out infinite; }
+
+        .columns { display: flex; flex: 1; overflow: hidden; }
+
+        .col-left { background: var(--bg-secondary); overflow-y: auto; flex-shrink: 0; }
+        .left-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); font-size: 12px; text-align: center; padding: 20px; }
+
+        .resize-handle { width: 5px; cursor: col-resize; background: var(--border-color); transition: background 0.2s; flex-shrink: 0; }
+        .resize-handle:hover { background: var(--accent-cyan); }
+
+        .col-center { flex: 1; display: flex; flex-direction: column; background: var(--bg-secondary); overflow: hidden; min-width: 300px; }
+        .center-top { flex: 1; overflow: hidden; min-height: 100px; position: relative; }
+
+        .iframe-shield {
+          position: absolute; inset: 0; z-index: 10; cursor: col-resize;
         }
 
-        .app-subtitle {
-          font-size: 12px;
-          color: var(--text-muted);
-          padding-left: 12px;
-          border-left: 1px solid var(--border-color);
-        }
+        .resize-handle-h { height: 5px; cursor: row-resize; background: var(--border-color); transition: background 0.2s; flex-shrink: 0; }
+        .resize-handle-h:hover { background: var(--accent-cyan); }
 
-        .header-right {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
+        .center-note { flex-shrink: 0; overflow: hidden; border-top: none; border-bottom: none; }
 
-        .session-badge {
-          font-size: 11px;
-          color: var(--text-muted);
-          padding: 4px 10px;
-          border-radius: 20px;
-          background: rgba(0, 212, 255, 0.08);
-          border: 1px solid rgba(0, 212, 255, 0.15);
-          font-family: monospace;
-        }
+        .center-bottom { height: 180px; min-height: 140px; display: flex; flex-direction: column; border-top: 1px solid var(--border-color); flex-shrink: 0; }
 
-        .main-content {
-          display: flex;
-          flex: 1;
-          gap: 1px;
-          overflow: hidden;
-          background: var(--border-color);
-        }
-
-        .panel-left {
-          width: 280px;
-          min-width: 280px;
-          overflow-y: auto;
-          background: var(--bg-secondary);
-        }
-
-        .panel-center {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          background: var(--bg-secondary);
-          overflow: hidden;
-        }
-
-        .panel-right {
-          width: 340px;
-          min-width: 340px;
-          overflow-y: auto;
-          background: var(--bg-secondary);
-        }
-
-        .analysis-empty {
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          color: var(--text-muted);
-          font-size: 13px;
-          text-align: center;
-          padding: 40px;
-        }
+        .col-right { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
+        .right-top { flex: 1; background: var(--bg-secondary); overflow: hidden; }
+        .right-bottom { flex: 1; background: var(--bg-secondary); overflow: hidden; }
       `}</style>
     </div>
   );

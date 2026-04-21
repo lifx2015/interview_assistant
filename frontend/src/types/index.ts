@@ -1,3 +1,5 @@
+export type SpeakerRole = 'interviewer' | 'candidate';
+
 export interface CandidateInfo {
   name: string;
   phone: string;
@@ -7,6 +9,7 @@ export interface CandidateInfo {
   skills: string[];
   projects: string[];
   summary: string;
+  risk_points: string[];
 }
 
 export interface ResumeUploadResponse {
@@ -14,10 +17,18 @@ export interface ResumeUploadResponse {
   candidate: CandidateInfo;
 }
 
-export interface ASRResult {
-  type: 'partial' | 'sentence' | 'error';
+export interface TranscriptEntry {
+  id: number;
+  role: SpeakerRole;
   text: string;
-  sentence_id: number;
+  isFinal: boolean;
+  timestamp: number;
+}
+
+export interface InterviewQuestion {
+  question: string;
+  dimension: string;
+  focus: string;
 }
 
 export interface StarFollowUp {
