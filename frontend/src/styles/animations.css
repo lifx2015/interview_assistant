@@ -1,0 +1,54 @@
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 68, 102, 0.4); }
+  50% { box-shadow: 0 0 20px rgba(255, 68, 102, 0.8); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.2); }
+}
+
+@keyframes typing-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out;
+}
+
+.recording-pulse {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.recording-dot {
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.typing-cursor::after {
+  content: '|';
+  animation: typing-cursor 0.8s ease-in-out infinite;
+  color: var(--accent-cyan);
+  margin-left: 2px;
+}
+
+.shimmer-loading {
+  background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.08), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}

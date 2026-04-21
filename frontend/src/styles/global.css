@@ -1,0 +1,152 @@
+:root {
+  --bg-primary: #0a0e17;
+  --bg-secondary: #111827;
+  --bg-card: rgba(17, 24, 39, 0.7);
+  --bg-card-hover: rgba(17, 24, 39, 0.85);
+  --border-color: rgba(0, 212, 255, 0.15);
+  --border-glow: rgba(0, 212, 255, 0.4);
+  --accent-cyan: #00d4ff;
+  --accent-blue: #0066ff;
+  --accent-green: #00ff88;
+  --accent-amber: #ffaa00;
+  --accent-red: #ff4466;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --glass-blur: 12px;
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 212, 255, 0.2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.4);
+}
+
+.glow-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.glow-card:hover {
+  border-color: var(--border-glow);
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.08);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.btn:hover {
+  border-color: var(--border-glow);
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.15);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-start {
+  border-color: rgba(0, 255, 136, 0.3);
+  color: var(--accent-green);
+}
+
+.btn-start:hover {
+  border-color: var(--accent-green);
+  box-shadow: 0 0 16px rgba(0, 255, 136, 0.2);
+}
+
+.btn-pause {
+  border-color: rgba(255, 170, 0, 0.3);
+  color: var(--accent-amber);
+}
+
+.btn-pause:hover {
+  border-color: var(--accent-amber);
+  box-shadow: 0 0 16px rgba(255, 170, 0, 0.2);
+}
+
+.btn-stop {
+  border-color: rgba(255, 68, 102, 0.3);
+  color: var(--accent-red);
+}
+
+.btn-stop:hover {
+  border-color: var(--accent-red);
+  box-shadow: 0 0 16px rgba(255, 68, 102, 0.2);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+  border: none;
+  color: white;
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 20px rgba(0, 102, 255, 0.3);
+}
+
+.tag {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tag-situation { background: rgba(0, 212, 255, 0.15); color: var(--accent-cyan); }
+.tag-task { background: rgba(0, 102, 255, 0.15); color: #6699ff; }
+.tag-action { background: rgba(0, 255, 136, 0.15); color: var(--accent-green); }
+.tag-result { background: rgba(255, 170, 0, 0.15); color: var(--accent-amber); }
+
+.risk-low { color: var(--accent-green); }
+.risk-medium { color: var(--accent-amber); }
+.risk-high { color: var(--accent-red); }
