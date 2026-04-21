@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewQuestion } from '../types';
+import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewQuestion, InterviewListItem } from '../types';
 import { ResumeUploader } from './ResumeUploader';
 import { CandidatePanel } from './CandidatePanel';
 import { PDFViewer } from './PDFViewer';
@@ -8,6 +8,7 @@ import { TranscriptPanel } from './TranscriptPanel';
 import { ControlBar } from './ControlBar';
 import { QuestionPanel } from './QuestionPanel';
 import { AnalysisPanel } from './AnalysisPanel';
+import { InterviewListPanel } from './InterviewListPanel';
 
 interface Props {
   candidate: CandidateInfo | null;
@@ -33,6 +34,11 @@ interface Props {
   onStop: () => void;
   onSubmitAnswer: () => void;
   onGenerateQuestions: () => void;
+  onSave: () => void;
+  isSaving: boolean;
+  savedInterviews: InterviewListItem[];
+  onLoadInterview: (sessionId: string) => void;
+  onFetchList: () => void;
 }
 
 export const MainLayout: React.FC<Props> = ({
@@ -42,13 +48,16 @@ export const MainLayout: React.FC<Props> = ({
   noteContent, onNoteChange,
   onUploadSuccess, onSwitchRole, onStart, onPause, onResume,
   onStop, onSubmitAnswer, onGenerateQuestions, onSelectQuestion,
+  onSave, isSaving, savedInterviews, onLoadInterview, onFetchList,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
   const [rightWidth, setRightWidth] = useState(400);
   const [noteHeight, setNoteHeight] = useState(200);
   const [isDragging, setIsDragging] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
+  const liveTranscriptRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<'left' | 'right' | 'note' | null>(null);
 
   const startDrag = useCallback((side: 'left' | 'right' | 'note') => (e: React.MouseEvent) => {
@@ -85,6 +94,13 @@ export const MainLayout: React.FC<Props> = ({
     document.addEventListener('mouseup', onMouseUp);
   }, []);
 
+  // Auto-scroll live transcript
+  React.useEffect(() => {
+    if (liveTranscriptRef.current) {
+      liveTranscriptRef.current.scrollTop = liveTranscriptRef.current.scrollHeight;
+    }
+  }, [transcript, currentPartial]);
+
   return (
     <div className="main-layout">
       {/* Header */}
@@ -97,6 +113,23 @@ export const MainLayout: React.FC<Props> = ({
           <span className="app-subtitle">STAR 行为面试智能分析</span>
         </div>
         <div className="header-right">
+          {sessionId && (
+            <button className="btn btn-save" onClick={onSave} disabled={isSaving}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+              {isSaving ? '保存中...' : '保存'}
+            </button>
+          )}
+          <button className="btn btn-list" onClick={() => { onFetchList(); setListOpen(true); }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" />
+                <line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" />
+                <line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+              </svg>
+            </button>
           {status === 'recording' && (
             <div className={`rec-badge ${currentRole}`}>
               <span className="rec-dot" />
@@ -130,9 +163,42 @@ export const MainLayout: React.FC<Props> = ({
 
         {/* CENTER */}
         <main className="col-center" ref={centerRef}>
-          {/* PDF / Upload — with drag shield overlay */}
+          {/* PDF / Upload / Live Transcript */}
           <div className="center-top">
-            {sessionId ? <PDFViewer sessionId={sessionId} /> : <ResumeUploader onUploadSuccess={onUploadSuccess} />}
+            {status === 'recording' || status === 'paused' || status === 'analyzing' ? (
+              <div className="live-transcript-area">
+                <div className="live-transcript-header">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                  <span>实时对话</span>
+                  {status === 'recording' && <span className="live-dot" />}
+                </div>
+                <div className="live-transcript-body" ref={liveTranscriptRef}>
+                  {transcript.map((entry) => (
+                    <div key={entry.id} className={`live-msg ${entry.role}`}>
+                      <span className="live-msg-role">{entry.role === 'interviewer' ? '面试官' : '候选人'}</span>
+                      <span className="live-msg-text">{entry.text}</span>
+                    </div>
+                  ))}
+                  {currentPartial && (
+                    <div className={`live-msg ${currentRole} partial`}>
+                      <span className="live-msg-role">{currentRole === 'interviewer' ? '面试官' : '候选人'}</span>
+                      <span className="live-msg-text">{currentPartial}<span className="typing-cursor" /></span>
+                    </div>
+                  )}
+                  {transcript.length === 0 && !currentPartial && (
+                    <div className="live-empty">等待语音输入...</div>
+                  )}
+                </div>
+              </div>
+            ) : sessionId ? (
+              <PDFViewer sessionId={sessionId} />
+            ) : (
+              <ResumeUploader onUploadSuccess={onUploadSuccess} />
+            )}
             {isDragging && <div className="iframe-shield" />}
           </div>
 
@@ -157,6 +223,12 @@ export const MainLayout: React.FC<Props> = ({
 
         {/* RIGHT */}
         <aside className="col-right" style={{ width: rightWidth, minWidth: rightWidth }}>
+          <InterviewListPanel
+            interviews={savedInterviews}
+            isOpen={listOpen}
+            onClose={() => setListOpen(false)}
+            onLoad={onLoadInterview}
+          />
           <div className="right-top glow-card">
             <QuestionPanel questions={interviewQuestions} isGenerating={isGeneratingQuestions}
               onGenerate={onGenerateQuestions} activeIndex={activeQuestionIndex} onSelectQuestion={onSelectQuestion} />
@@ -185,6 +257,22 @@ export const MainLayout: React.FC<Props> = ({
         .app-subtitle { font-size: 11px; color: var(--text-muted); padding-left: 10px; border-left: 1px solid var(--border-color); }
         .header-right { display: flex; align-items: center; gap: 10px; }
 
+        .btn-save {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 5px 12px; border: 1px solid rgba(0,255,136,0.3); border-radius: 6px;
+          background: rgba(0,255,136,0.06); color: var(--accent-green);
+          font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+        }
+        .btn-save:hover:not(:disabled) { border-color: var(--accent-green); box-shadow: 0 0 12px rgba(0,255,136,0.15); }
+        .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-list {
+          display: inline-flex; align-items: center; justify-content: center;
+          padding: 5px 8px; border: 1px solid var(--border-color); border-radius: 6px;
+          background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+        }
+        .btn-list:hover { border-color: var(--border-glow); color: var(--accent-cyan); }
+
         .rec-badge { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 16px; font-size: 11px; font-weight: 600; }
         .rec-badge.interviewer { background: rgba(0,102,255,0.12); border: 1px solid rgba(0,102,255,0.3); color: #6699ff; }
         .rec-badge.candidate { background: rgba(255,68,102,0.1); border: 1px solid rgba(255,68,102,0.3); color: var(--accent-red); }
@@ -202,6 +290,42 @@ export const MainLayout: React.FC<Props> = ({
 
         .col-center { flex: 1; display: flex; flex-direction: column; background: var(--bg-secondary); overflow: hidden; min-width: 300px; }
         .center-top { flex: 1; overflow: hidden; min-height: 100px; position: relative; }
+
+        .live-transcript-area { display: flex; flex-direction: column; height: 100%; background: var(--bg-secondary); }
+        .live-transcript-header {
+          display: flex; align-items: center; gap: 8px;
+          padding: 10px 16px; border-bottom: 1px solid var(--border-color);
+          font-size: 13px; font-weight: 600; color: var(--text-primary); flex-shrink: 0;
+        }
+        .live-dot {
+          width: 8px; height: 8px; border-radius: 50%; background: var(--accent-red);
+          animation: pulse-dot 1s ease-in-out infinite; margin-left: auto;
+        }
+        .live-transcript-body {
+          flex: 1; overflow-y: auto; padding: 12px 16px;
+          display: flex; flex-direction: column; gap: 10px;
+        }
+        .live-empty {
+          height: 100%; display: flex; align-items: center; justify-content: center;
+          color: var(--text-muted); font-size: 13px;
+        }
+        .live-msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; }
+        .live-msg.interviewer {
+          align-self: flex-start; background: rgba(0,102,255,0.08);
+          border: 1px solid rgba(0,102,255,0.15); border-bottom-left-radius: 4px;
+        }
+        .live-msg.candidate {
+          align-self: flex-end; background: rgba(0,255,136,0.05);
+          border: 1px solid rgba(0,255,136,0.12); border-bottom-right-radius: 4px;
+        }
+        .live-msg.partial { opacity: 0.7; }
+        .live-msg-role {
+          display: block; font-size: 10px; font-weight: 600;
+          text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 3px;
+        }
+        .live-msg.interviewer .live-msg-role { color: #6699ff; }
+        .live-msg.candidate .live-msg-role { color: var(--accent-green); }
+        .live-msg-text { font-size: 14px; line-height: 1.6; color: var(--text-primary); }
 
         .iframe-shield {
           position: absolute; inset: 0; z-index: 10; cursor: col-resize;

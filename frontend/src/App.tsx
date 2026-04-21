@@ -72,6 +72,17 @@ function App() {
     ws.send({ type: 'control', action: 'switch_role', role });
   }, [interview.switchRole, ws.send]);
 
+  const handleSave = useCallback(() => {
+    interview.saveInterview(noteContent);
+  }, [interview.saveInterview, noteContent]);
+
+  const handleLoadInterview = useCallback(async (sessionId: string) => {
+    const notes = await interview.loadInterview(sessionId);
+    if (notes !== undefined) {
+      setNoteContent(notes);
+    }
+  }, [interview.loadInterview]);
+
   return (
     <MainLayout
       candidate={interview.candidate}
@@ -97,6 +108,11 @@ function App() {
       onSubmitAnswer={handleSubmitAnswer}
       onGenerateQuestions={interview.generateQuestions}
       onSelectQuestion={interview.setActiveQuestionIndex}
+      onSave={handleSave}
+      isSaving={interview.isSaving}
+      savedInterviews={interview.savedInterviews}
+      onLoadInterview={handleLoadInterview}
+      onFetchList={interview.fetchInterviewList}
     />
   );
 }

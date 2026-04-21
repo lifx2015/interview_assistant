@@ -1,10 +1,20 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
 from backend.routers import resume, interview, ws_asr
+from backend.services import database
 
-app = FastAPI(title="AI Interview Assistant", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await database.init_db()
+    yield
+
+
+app = FastAPI(title="AI Interview Assistant", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

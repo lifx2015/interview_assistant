@@ -49,11 +49,26 @@ async def generate_interview_questions(resume_context: str, risk_points: list[st
     return _extract_json(content)
 
 
-async def analyze_answer_stream(resume_context: str, question: str, answer: str):
+async def analyze_answer_stream(
+    resume_context: str,
+    question: str,
+    answer: str,
+    conversation_history: list[dict] | None = None,
+):
+    # Build conversation context from history
+    history_text = ""
+    if conversation_history and len(conversation_history) > 1:
+        history_lines = []
+        for i, qa in enumerate(conversation_history[:-1], 1):
+            history_lines.append(f"第{i}轮 - 面试官: {qa.get('question', '')}")
+            history_lines.append(f"第{i}轮 - 候选人: {qa.get('answer', '')}")
+        history_text = "\n## 之前的面试对话\n" + "\n".join(history_lines)
+
     prompt = STAR_ANALYSIS_PROMPT.format(
         resume_context=resume_context,
         question=question,
         answer=answer,
+        conversation_history=history_text,
     )
 
     responses = Generation.call(

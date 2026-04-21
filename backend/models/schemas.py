@@ -57,3 +57,21 @@ class AnalysisResult(BaseModel):
     star_followups: list[StarFollowUp]
     risk_assessments: list[RiskAssessment]
     overall_comment: str = ""
+
+
+class SaveInterviewRequest(BaseModel):
+    session_id: str
+    candidate: dict
+    resume_text: str = ""
+    qa_history: list[dict] = []
+    transcript: list[dict] = []
+    analysis: dict | None = None
+    analysis_raw: str = ""
+    questions: list[dict] = []
+    notes: str = ""
+
+
+class InterviewListItem(BaseModel):
+    session_id: str
+    candidate_name: str
+    created_at: str

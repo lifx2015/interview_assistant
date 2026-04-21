@@ -7,6 +7,7 @@ import type {
   TranscriptEntry,
   InterviewQuestion,
   QARecord,
+  InterviewListItem,
 } from '../types';
 
 export function useInterview() {
@@ -25,6 +26,8 @@ export function useInterview() {
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(-1);
+  const [savedInterviews, setSavedInterviews] = useState<InterviewListItem[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
 
   const sentenceIdRef = useRef(0);
 
@@ -125,6 +128,70 @@ export function useInterview() {
     setCandidate(info);
   }, []);
 
+  const saveInterview = useCallback(async (notes: string) => {
+    if (!sessionId || !candidate) return;
+    setIsSaving(true);
+    try {
+      await fetch('/api/interview/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          candidate,
+          qa_history: qaHistory,
+          transcript,
+          analysis,
+          analysis_raw: analysisRaw,
+          questions: interviewQuestions,
+          notes,
+        }),
+      });
+    } catch (e) {
+      console.error('Failed to save interview:', e);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [sessionId, candidate, qaHistory, transcript, analysis, analysisRaw, interviewQuestions]);
+
+  const fetchInterviewList = useCallback(async () => {
+    try {
+      const res = await fetch('/api/interview/list');
+      if (res.ok) {
+        const data = await res.json();
+        setSavedInterviews(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch interview list:', e);
+    }
+  }, []);
+
+  const loadInterview = useCallback(async (targetSessionId: string) => {
+    try {
+      const res = await fetch(`/api/interview/${targetSessionId}/load`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      setSessionId(data.session_id);
+      setCandidate(data.candidate);
+      setQaHistory(data.qa_history || []);
+      setTranscript(data.transcript || []);
+      setAnalysis(data.analysis || null);
+      setAnalysisRaw(data.analysis_raw || '');
+      setInterviewQuestions(data.questions || []);
+      setStatus('idle');
+      setCurrentRole('interviewer');
+      setCurrentPartial('');
+      setInterviewerText('');
+      setCandidateText('');
+      setActiveQuestionIndex(-1);
+
+      return data.notes || '';
+    } catch (e) {
+      console.error('Failed to load interview:', e);
+      return undefined;
+    }
+  }, []);
+
   return {
     status,
     sessionId,
@@ -152,5 +219,10 @@ export function useInterview() {
     submitAnswer,
     generateQuestions,
     onUploadSuccess,
+    savedInterviews,
+    isSaving,
+    saveInterview,
+    fetchInterviewList,
+    loadInterview,
   };
 }

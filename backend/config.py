@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    database_path: str = "data/interviews.db"
 
     model_config = {"env_file": os.path.join(os.path.dirname(__file__), "..", ".env")}
 

@@ -32,6 +32,9 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
     interviewer_text: list[str] = []
     candidate_text: list[str] = []
 
+    # Full conversation history (all QA pairs)
+    conversation_history: list[dict] = []
+
     def on_partial(text: str, sentence_id: int):
         asyncio.run_coroutine_threadsafe(
             result_queue.put({
@@ -116,12 +119,19 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
                         resume_ctx = session.get("resume_text", "")
 
-                        # Stream LLM analysis
+                        # Add current QA to conversation history
+                        conversation_history.append({
+                            "question": full_question,
+                            "answer": full_answer,
+                        })
+
+                        # Stream LLM analysis with full conversation context
                         analysis_chunks: list[str] = []
                         async for chunk in analyze_answer_stream(
                             resume_context=resume_ctx,
                             question=full_question,
                             answer=full_answer,
+                            conversation_history=conversation_history,
                         ):
                             analysis_chunks.append(chunk)
                             await websocket.send_json({
