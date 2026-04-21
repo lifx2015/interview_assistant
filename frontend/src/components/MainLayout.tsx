@@ -22,6 +22,7 @@ interface Props {
   isAnalyzing: boolean;
   interviewQuestions: InterviewQuestion[];
   isGeneratingQuestions: boolean;
+  questionsRaw: string;
   activeQuestionIndex: number;
   noteContent: string;
   onNoteChange: (v: string) => void;
@@ -44,7 +45,7 @@ interface Props {
 export const MainLayout: React.FC<Props> = ({
   candidate, sessionId, status, currentRole,
   transcript, currentPartial, analysis, analysisRaw, isAnalyzing,
-  interviewQuestions, isGeneratingQuestions, activeQuestionIndex,
+  interviewQuestions, isGeneratingQuestions, questionsRaw, activeQuestionIndex,
   noteContent, onNoteChange,
   onUploadSuccess, onSwitchRole, onStart, onPause, onResume,
   onStop, onSubmitAnswer, onGenerateQuestions, onSelectQuestion,
@@ -231,6 +232,7 @@ export const MainLayout: React.FC<Props> = ({
           />
           <div className="right-top glow-card">
             <QuestionPanel questions={interviewQuestions} isGenerating={isGeneratingQuestions}
+              questionsRaw={questionsRaw}
               onGenerate={onGenerateQuestions} activeIndex={activeQuestionIndex} onSelectQuestion={onSelectQuestion} />
           </div>
           <div className="right-bottom glow-card">

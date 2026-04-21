@@ -5,9 +5,17 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.routers.sessions import get_sessions
 from backend.services.asr_service import ASRService
-from backend.services.llm_service import analyze_answer_stream
+from backend.services.llm_service import analyze_answer_stream, generate_interview_questions_stream
 
 router = APIRouter()
+
+
+def _extract_questions_json(content: str) -> dict:
+    if "```json" in content:
+        content = content.split("```json")[1].split("```")[0]
+    elif "```" in content:
+        content = content.split("```")[1].split("```")[0]
+    return json.loads(content.strip())
 
 
 @router.websocket("/ws/asr/{session_id}")
@@ -152,6 +160,35 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                             "answer": full_answer,
                             "analysis": full_analysis,
                         })
+
+                    elif action == "generate_questions":
+                        resume_ctx = session.get("resume_text", "")
+                        candidate = session.get("candidate", {})
+                        risk_points = candidate.get("risk_points", [])
+
+                        question_chunks: list[str] = []
+                        async for chunk in generate_interview_questions_stream(
+                            resume_context=resume_ctx,
+                            risk_points=risk_points,
+                        ):
+                            question_chunks.append(chunk)
+                            await websocket.send_json({
+                                "type": "questions_stream",
+                                "data": chunk,
+                            })
+
+                        full_questions_text = "".join(question_chunks)
+                        await websocket.send_json({
+                            "type": "questions_complete",
+                            "data": full_questions_text,
+                        })
+
+                        # Parse and store generated questions
+                        try:
+                            parsed = _extract_questions_json(full_questions_text)
+                            session["generated_questions"] = parsed.get("questions", [])
+                        except Exception:
+                            pass
 
                     elif action == "pause":
                         if asr_started:

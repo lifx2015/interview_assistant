@@ -25,6 +25,7 @@ export function useInterview() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
+  const [questionsRaw, setQuestionsRaw] = useState('');
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(-1);
   const [savedInterviews, setSavedInterviews] = useState<InterviewListItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -52,6 +53,23 @@ export function useInterview() {
       setCurrentPartial('');
     } else if (data.type === 'role_switched') {
       setCurrentRole(data.role);
+    } else if (data.type === 'questions_stream') {
+      setQuestionsRaw((prev) => prev + data.data);
+    } else if (data.type === 'questions_complete') {
+      try {
+        let content = data.data;
+        if (content.includes('```json')) {
+          content = content.split('```json')[1].split('```')[0];
+        } else if (content.includes('```')) {
+          content = content.split('```')[1].split('```')[0];
+        }
+        const parsed = JSON.parse(content.trim());
+        setInterviewQuestions(parsed.questions || []);
+      } catch {
+        // Keep raw text if parse fails
+      }
+      setIsGeneratingQuestions(false);
+      setQuestionsRaw('');
     }
   }, []);
 
@@ -107,19 +125,18 @@ export function useInterview() {
     setStatus('analyzing');
   }, []);
 
-  const generateQuestions = useCallback(async () => {
+  const wsSendRef = useRef<((data: any) => void) | null>(null);
+
+  const setWsSend = useCallback((fn: (data: any) => void) => {
+    wsSendRef.current = fn;
+  }, []);
+
+  const generateQuestions = useCallback(() => {
     if (!sessionId) return;
     setIsGeneratingQuestions(true);
-    try {
-      const res = await fetch(`/api/interview/${sessionId}/generate-questions`, { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        setInterviewQuestions(data.questions || []);
-      }
-    } catch (e) {
-      console.error('Failed to generate questions:', e);
-    } finally {
-      setIsGeneratingQuestions(false);
+    setQuestionsRaw('');
+    if (wsSendRef.current) {
+      wsSendRef.current({ type: 'control', action: 'generate_questions' });
     }
   }, [sessionId]);
 
@@ -207,6 +224,7 @@ export function useInterview() {
     isAnalyzing,
     interviewQuestions,
     isGeneratingQuestions,
+    questionsRaw,
     activeQuestionIndex,
     setActiveQuestionIndex,
     switchRole,
@@ -219,6 +237,7 @@ export function useInterview() {
     submitAnswer,
     generateQuestions,
     onUploadSuccess,
+    setWsSend,
     savedInterviews,
     isSaving,
     saveInterview,

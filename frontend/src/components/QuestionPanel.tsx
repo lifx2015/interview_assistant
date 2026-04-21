@@ -4,6 +4,7 @@ import type { InterviewQuestion } from '../types';
 interface Props {
   questions: InterviewQuestion[];
   isGenerating: boolean;
+  questionsRaw: string;
   onGenerate: () => void;
   activeIndex: number;
   onSelectQuestion: (index: number) => void;
@@ -47,8 +48,12 @@ export const QuestionPanel: React.FC<Props> = ({
         </button>
       </div>
 
-      {questions.length === 0 ? (
+      {questions.length === 0 && !isGenerating ? (
         <div className="empty-hint">点击「生成题目」基于简历自动生成面试问题</div>
+      ) : isGenerating && questions.length === 0 ? (
+        <div className="question-stream-area">
+          <div className="question-stream-text typing-cursor">{questionsRaw}</div>
+        </div>
       ) : (
         <div className="question-list">
           {questions.map((q, i) => (

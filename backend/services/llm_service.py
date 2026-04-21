@@ -49,6 +49,27 @@ async def generate_interview_questions(resume_context: str, risk_points: list[st
     return _extract_json(content)
 
 
+async def generate_interview_questions_stream(resume_context: str, risk_points: list[str]):
+    prompt = INTERVIEW_QUESTIONS_PROMPT.format(
+        resume_context=resume_context,
+        risk_points="\n".join(f"- {r}" for r in risk_points) if risk_points else "暂无",
+    )
+
+    responses = Generation.call(
+        model=settings.llm_model,
+        messages=[{"role": "user", "content": prompt}],
+        result_format="message",
+        stream=True,
+        incremental_output=True,
+    )
+
+    for resp in responses:
+        if resp.output and resp.output.choices:
+            delta = resp.output.choices[0].message.content
+            if delta:
+                yield delta
+
+
 async def analyze_answer_stream(
     resume_context: str,
     question: str,

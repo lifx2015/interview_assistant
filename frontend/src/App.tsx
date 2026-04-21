@@ -27,6 +27,11 @@ function App() {
     onMessage: handleWSMessage,
   });
 
+  // Wire ws.send to useInterview for generate_questions
+  React.useEffect(() => {
+    interview.setWsSend(ws.send);
+  }, [ws.send, interview.setWsSend]);
+
   const handleAudioData = useCallback((pcmBuffer: ArrayBuffer) => {
     ws.sendBinary(pcmBuffer);
   }, [ws.sendBinary]);
@@ -96,6 +101,7 @@ function App() {
       isAnalyzing={interview.isAnalyzing}
       interviewQuestions={interview.interviewQuestions}
       isGeneratingQuestions={interview.isGeneratingQuestions}
+      questionsRaw={interview.questionsRaw}
       activeQuestionIndex={interview.activeQuestionIndex}
       noteContent={noteContent}
       onNoteChange={setNoteContent}
