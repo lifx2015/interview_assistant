@@ -15,9 +15,8 @@ CREATE TABLE IF NOT EXISTS interviews (
     resume_text    TEXT NOT NULL DEFAULT '',
     qa_history     TEXT NOT NULL DEFAULT '[]',
     transcript     TEXT NOT NULL DEFAULT '[]',
-    analysis       TEXT,
     analysis_raw   TEXT NOT NULL DEFAULT '',
-    questions      TEXT NOT NULL DEFAULT '[]',
+    questions_raw  TEXT NOT NULL DEFAULT '',
     notes          TEXT NOT NULL DEFAULT '',
     pdf_content    BLOB,
     pdf_filename   TEXT,
@@ -48,10 +47,16 @@ async def init_db() -> None:
     await db.commit()
 
 
+async def close_db() -> None:
+    global _db
+    if _db is not None:
+        await _db.close()
+        _db = None
+
+
 async def save_interview(data: dict) -> None:
     db = await get_db()
 
-    # Preserve original created_at on upsert
     existing_row = await db.execute_fetchall(
         "SELECT created_at FROM interviews WHERE session_id = ?",
         (data["session_id"],),
@@ -62,16 +67,14 @@ async def save_interview(data: dict) -> None:
     candidate_name = data.get("candidate", {}).get("name", "Unknown")
     qa_history_json = json.dumps(data.get("qa_history", []), ensure_ascii=False)
     transcript_json = json.dumps(data.get("transcript", []), ensure_ascii=False)
-    analysis_json = json.dumps(data["analysis"], ensure_ascii=False) if data.get("analysis") else None
-    questions_json = json.dumps(data.get("questions", []), ensure_ascii=False)
 
     if created_at:
         await db.execute(
             """INSERT OR REPLACE INTO interviews
                (session_id, candidate, candidate_name, resume_text, qa_history,
-                transcript, analysis, analysis_raw, questions, notes,
+                transcript, analysis_raw, questions_raw, notes,
                 pdf_content, pdf_filename, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data["session_id"],
                 candidate_json,
@@ -79,9 +82,8 @@ async def save_interview(data: dict) -> None:
                 data.get("resume_text", ""),
                 qa_history_json,
                 transcript_json,
-                analysis_json,
                 data.get("analysis_raw", ""),
-                questions_json,
+                data.get("questions_raw", ""),
                 data.get("notes", ""),
                 data.get("pdf_content"),
                 data.get("pdf_filename"),
@@ -92,7 +94,7 @@ async def save_interview(data: dict) -> None:
         await db.execute(
             """INSERT INTO interviews
                (session_id, candidate, candidate_name, resume_text, qa_history,
-                transcript, analysis, analysis_raw, questions, notes,
+                transcript, analysis_raw, questions_raw, notes,
                 pdf_content, pdf_filename)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
@@ -102,9 +104,8 @@ async def save_interview(data: dict) -> None:
                 data.get("resume_text", ""),
                 qa_history_json,
                 transcript_json,
-                analysis_json,
                 data.get("analysis_raw", ""),
-                questions_json,
+                data.get("questions_raw", ""),
                 data.get("notes", ""),
                 data.get("pdf_content"),
                 data.get("pdf_filename"),
@@ -129,10 +130,7 @@ async def load_interview(session_id: str) -> dict | None:
     if not rows:
         return None
     row = dict(rows[0])
-    # Deserialize JSON columns
     row["candidate"] = json.loads(row["candidate"])
     row["qa_history"] = json.loads(row["qa_history"])
     row["transcript"] = json.loads(row["transcript"])
-    row["analysis"] = json.loads(row["analysis"]) if row.get("analysis") else None
-    row["questions"] = json.loads(row["questions"])
     return row

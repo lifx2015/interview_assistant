@@ -5,17 +5,17 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.routers.sessions import get_sessions
 from backend.services.asr_service import ASRService
-from backend.services.llm_service import analyze_answer_stream, generate_interview_questions_stream
+from backend.services.llm_service import (
+    analyze_answer_stream,
+    incremental_analyze_stream,
+)
 
 router = APIRouter()
 
 
-def _extract_questions_json(content: str) -> dict:
-    if "```json" in content:
-        content = content.split("```json")[1].split("```")[0]
-    elif "```" in content:
-        content = content.split("```")[1].split("```")[0]
-    return json.loads(content.strip())
+# Track in-flight incremental analysis per session to prevent overlapping calls
+_incremental_in_flight: dict[str, bool] = {}
+_incremental_pending: dict[str, str] = {}  # session_id -> latest pending sentence
 
 
 @router.websocket("/ws/asr/{session_id}")
@@ -40,8 +40,11 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
     interviewer_text: list[str] = []
     candidate_text: list[str] = []
 
-    # Full conversation history (all QA pairs)
+    # Full conversation history (completed QA pairs only)
     conversation_history: list[dict] = []
+
+    # Current question being asked (accumulated interviewer text for this round)
+    current_question = ""
 
     def on_partial(text: str, sentence_id: int):
         asyncio.run_coroutine_threadsafe(
@@ -73,6 +76,85 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
     asr_started = False
 
+    async def run_incremental_analysis(sentence: str):
+        """Run incremental analysis for a candidate sentence. Handles debouncing."""
+        if _incremental_in_flight.get(session_id):
+            _incremental_pending[session_id] = sentence
+            return
+
+        _incremental_in_flight[session_id] = True
+        try:
+            await _do_incremental_analysis(sentence)
+
+            pending = _incremental_pending.pop(session_id, None)
+            if pending:
+                await run_incremental_analysis(pending)
+        finally:
+            _incremental_in_flight[session_id] = False
+
+    async def _do_incremental_analysis(sentence: str):
+        accumulated = "".join(candidate_text)
+        resume_ctx = session.get("resume_text", "")
+
+        try:
+            buffer = ""
+            in_followup_section = False
+            async for chunk in incremental_analyze_stream(
+                resume_context=resume_ctx,
+                current_sentence=sentence,
+                accumulated_answer=accumulated,
+                current_question=current_question,
+                conversation_history=conversation_history,
+            ):
+                buffer += chunk
+
+                # Check if we've reached the followup section
+                if "---FOLLOWUP---" in buffer:
+                    if not in_followup_section:
+                        # First time seeing the separator
+                        in_followup_section = True
+                        parts = buffer.split("---FOLLOWUP---", 1)
+                        analysis_part = parts[0]
+                        followup_part = parts[1] if len(parts) > 1 else ""
+
+                        # Send remaining analysis content
+                        if analysis_part:
+                            await websocket.send_json({
+                                "type": "incremental_analysis_stream",
+                                "data": analysis_part,
+                            })
+
+                        # Send followup content
+                        if followup_part:
+                            await websocket.send_json({
+                                "type": "follow_up_stream",
+                                "data": followup_part,
+                            })
+                    else:
+                        # Already in followup section, send all to follow_up_stream
+                        await websocket.send_json({
+                            "type": "follow_up_stream",
+                            "data": chunk,
+                        })
+                else:
+                    # Still in analysis section
+                    await websocket.send_json({
+                        "type": "incremental_analysis_stream",
+                        "data": chunk,
+                    })
+
+            await websocket.send_json({
+                "type": "incremental_analysis_complete",
+            })
+            await websocket.send_json({
+                "type": "follow_up_complete",
+            })
+        except Exception as e:
+            await websocket.send_json({
+                "type": "error",
+                "data": f"Incremental analysis failed: {str(e)}",
+            })
+
     try:
         async def forward_results():
             while True:
@@ -81,11 +163,18 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                     await websocket.send_json(item)
                     continue
                 await websocket.send_json(item)
+
                 if item["type"] == "sentence":
                     if item["role"] == "interviewer":
                         interviewer_text.append(item["text"])
+                        # Update current question as interviewer speaks
+                        current_question = "".join(interviewer_text)
                     else:
                         candidate_text.append(item["text"])
+                        # Trigger incremental analysis for each candidate sentence
+                        asyncio.create_task(
+                            run_incremental_analysis(item["text"])
+                        )
 
         forward_task = asyncio.create_task(forward_results())
 
@@ -106,7 +195,6 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                     action = msg.get("action", "")
 
                     if action == "switch_role":
-                        # Switch speaker role
                         new_role = msg.get("role", "interviewer")
                         current_role = new_role
                         await websocket.send_json({
@@ -115,42 +203,48 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                         })
 
                     elif action == "answer_complete":
-                        # Stop ASR, run LLM analysis on candidate's answer
                         if asr_started:
                             asr.stop()
                             asr_started = False
+
+                        # Cancel any pending incremental analysis
+                        _incremental_in_flight.pop(session_id, None)
+                        _incremental_pending.pop(session_id, None)
 
                         full_answer = "".join(candidate_text)
                         full_question = "".join(interviewer_text)
                         candidate_text.clear()
                         interviewer_text.clear()
+                        current_question = ""
 
                         resume_ctx = session.get("resume_text", "")
 
-                        # Add current QA to conversation history
+                        # Add to conversation history BEFORE final analysis
+                        # so the analysis can see the current round in context
                         conversation_history.append({
                             "question": full_question,
                             "answer": full_answer,
                         })
 
-                        # Stream LLM analysis with full conversation context
-                        analysis_chunks: list[str] = []
+                        # Send clear signal to frontend to reset incremental state
+                        await websocket.send_json({
+                            "type": "incremental_analysis_clear",
+                        })
+
+                        # Stream final comprehensive LLM analysis
                         async for chunk in analyze_answer_stream(
                             resume_context=resume_ctx,
                             question=full_question,
                             answer=full_answer,
                             conversation_history=conversation_history,
                         ):
-                            analysis_chunks.append(chunk)
                             await websocket.send_json({
                                 "type": "analysis_stream",
                                 "data": chunk,
                             })
 
-                        full_analysis = "".join(analysis_chunks)
                         await websocket.send_json({
                             "type": "analysis_complete",
-                            "data": full_analysis,
                             "question": full_question,
                             "answer": full_answer,
                         })
@@ -158,37 +252,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                         session["qa_history"].append({
                             "question": full_question,
                             "answer": full_answer,
-                            "analysis": full_analysis,
                         })
-
-                    elif action == "generate_questions":
-                        resume_ctx = session.get("resume_text", "")
-                        candidate = session.get("candidate", {})
-                        risk_points = candidate.get("risk_points", [])
-
-                        question_chunks: list[str] = []
-                        async for chunk in generate_interview_questions_stream(
-                            resume_context=resume_ctx,
-                            risk_points=risk_points,
-                        ):
-                            question_chunks.append(chunk)
-                            await websocket.send_json({
-                                "type": "questions_stream",
-                                "data": chunk,
-                            })
-
-                        full_questions_text = "".join(question_chunks)
-                        await websocket.send_json({
-                            "type": "questions_complete",
-                            "data": full_questions_text,
-                        })
-
-                        # Parse and store generated questions
-                        try:
-                            parsed = _extract_questions_json(full_questions_text)
-                            session["generated_questions"] = parsed.get("questions", [])
-                        except Exception:
-                            pass
 
                     elif action == "pause":
                         if asr_started:
@@ -209,3 +273,5 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         if asr_started:
             asr.stop()
         forward_task.cancel()
+        _incremental_in_flight.pop(session_id, None)
+        _incremental_pending.pop(session_id, None)

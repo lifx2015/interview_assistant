@@ -1,0 +1,139 @@
+.markdown-body {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-top: 16px;
+  margin-bottom: 8px;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent-cyan);
+}
+
+.markdown-body h1 { font-size: 16px; }
+.markdown-body h2 { font-size: 15px; border-left-color: var(--accent-blue); }
+.markdown-body h3 { font-size: 14px; }
+.markdown-body h4 { font-size: 13px; border-left-width: 2px; }
+
+.markdown-body .question-title {
+  margin-top: 18px !important;
+  margin-bottom: 10px !important;
+  font-size: 14px !important;
+  color: var(--accent-cyan) !important;
+}
+
+.markdown-body .question-title:first-child {
+  margin-top: 0 !important;
+}
+
+.markdown-body p {
+  margin: 8px 0;
+}
+
+.markdown-body .question-paragraph {
+  margin: 10px 0 !important;
+  line-height: 1.8;
+}
+
+.markdown-body strong,
+.markdown-body b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 24px;
+  margin: 8px 0;
+}
+
+.markdown-body li {
+  margin: 6px 0;
+}
+
+.markdown-body .question-item {
+  margin: 8px 0 !important;
+}
+
+.markdown-body ul li::marker {
+  color: var(--accent-cyan);
+}
+
+.markdown-body ol li::marker {
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.markdown-body blockquote {
+  margin: 8px 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--accent-cyan);
+  background: rgba(0, 212, 255, 0.04);
+  border-radius: 0 4px 4px 0;
+  color: var(--text-muted);
+}
+
+.markdown-body blockquote p {
+  margin: 2px 0;
+}
+
+.markdown-body code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--accent-cyan);
+  font-size: 12px;
+}
+
+.markdown-body pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  overflow-x: auto;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: none;
+  font-size: 12px;
+}
+
+.markdown-body hr {
+  border: none;
+  height: 1px;
+  background: var(--border-color);
+  margin: 12px 0;
+}
+
+.markdown-body a {
+  color: var(--accent-cyan);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body .md-cursor {
+  display: inline;
+  color: var(--accent-cyan);
+  animation: blink 0.8s step-end infinite;
+}
+
+.markdown-body .md-cursor::after {
+  content: '▊';
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

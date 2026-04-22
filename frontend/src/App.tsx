@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { MainLayout } from './components/MainLayout';
 import { useInterview } from './hooks/useInterview';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -6,6 +6,7 @@ import { useAudioCapture } from './hooks/useAudioCapture';
 import type { SpeakerRole } from './types';
 import './styles/global.css';
 import './styles/animations.css';
+import './styles/markdown.css';
 
 function App() {
   const interview = useInterview();
@@ -13,22 +14,19 @@ function App() {
   const [noteContent, setNoteContent] = useState('');
 
   const handleWSMessage = useCallback((data: any) => {
-    if (data.type === 'partial' || data.type === 'sentence' || data.type === 'role_switched') {
-      interview.handleASRResult(data);
-    } else if (data.type === 'analysis_stream' || data.type === 'analysis_complete') {
-      interview.handleAnalysisStream(data);
-    } else if (data.type === 'error') {
+    if (data.type === 'error') {
       console.error('WS error:', data.data);
+    } else {
+      interview.handleASRResult(data);
     }
-  }, [interview.handleASRResult, interview.handleAnalysisStream]);
+  }, [interview.handleASRResult]);
 
   const ws = useWebSocket({
     url: `ws://${window.location.hostname}:8000/ws/asr/${interview.sessionId || 'pending'}`,
     onMessage: handleWSMessage,
   });
 
-  // Wire ws.send to useInterview for generate_questions
-  React.useEffect(() => {
+  useEffect(() => {
     interview.setWsSend(ws.send);
   }, [ws.send, interview.setWsSend]);
 
@@ -96,13 +94,12 @@ function App() {
       currentRole={interview.currentRole}
       transcript={interview.transcript}
       currentPartial={interview.currentPartial}
-      analysis={interview.analysis}
       analysisRaw={interview.analysisRaw}
       isAnalyzing={interview.isAnalyzing}
-      interviewQuestions={interview.interviewQuestions}
       isGeneratingQuestions={interview.isGeneratingQuestions}
       questionsRaw={interview.questionsRaw}
-      activeQuestionIndex={interview.activeQuestionIndex}
+      incrementalRaw={interview.incrementalRaw}
+      followUpRaw={interview.followUpRaw}
       noteContent={noteContent}
       onNoteChange={setNoteContent}
       onUploadSuccess={interview.onUploadSuccess}
@@ -113,7 +110,6 @@ function App() {
       onStop={handleStop}
       onSubmitAnswer={handleSubmitAnswer}
       onGenerateQuestions={interview.generateQuestions}
-      onSelectQuestion={interview.setActiveQuestionIndex}
       onSave={handleSave}
       isSaving={interview.isSaving}
       savedInterviews={interview.savedInterviews}

@@ -42,15 +42,12 @@ export const CandidatePanel: React.FC<Props> = ({ candidate }) => {
       {candidate.education.length > 0 && (
         <div className="section">
           <div className="section-title">教育背景</div>
-          {candidate.education.map((e, i) => <div key={i} className="list-item">{e}</div>)}
-        </div>
-      )}
-
-      {/* Work Experience */}
-      {candidate.work_experience.length > 0 && (
-        <div className="section">
-          <div className="section-title">工作经历</div>
-          {candidate.work_experience.map((w, i) => <div key={i} className="list-item">{w}</div>)}
+          {candidate.education.map((e, i) => (
+            <div key={i} className="list-item">
+              <div className="item-primary">{e.school}{e.degree ? ` - ${e.degree}` : ''}{e.major ? ` ${e.major}` : ''}</div>
+              {e.period && <div className="item-sub">{e.period}</div>}
+            </div>
+          ))}
         </div>
       )}
 

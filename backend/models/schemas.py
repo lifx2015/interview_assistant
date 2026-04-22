@@ -1,16 +1,46 @@
-from pydantic import BaseModel
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, field_validator
+
+
+def _none_to_empty(v: Optional[str]) -> str:
+    return v if v is not None else ""
+
+
+class Education(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    school: str = ""
+    degree: str = ""
+    major: str = ""
+    period: str = ""
+
+    _normalize_school = field_validator("school", mode="before")(_none_to_empty)
+    _normalize_degree = field_validator("degree", mode="before")(_none_to_empty)
+    _normalize_major = field_validator("major", mode="before")(_none_to_empty)
+    _normalize_period = field_validator("period", mode="before")(_none_to_empty)
 
 
 class CandidateInfo(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     name: str = ""
     phone: str = ""
     email: str = ""
-    education: list[str] = []
-    work_experience: list[str] = []
+    education: list[Education] = []
     skills: list[str] = []
-    projects: list[str] = []
     summary: str = ""
     risk_points: list[str] = []
+
+    _normalize_name = field_validator("name", mode="before")(_none_to_empty)
+    _normalize_phone = field_validator("phone", mode="before")(_none_to_empty)
+    _normalize_email = field_validator("email", mode="before")(_none_to_empty)
+    _normalize_summary = field_validator("summary", mode="before")(_none_to_empty)
+
+    @field_validator("skills", "risk_points", "education", mode="before")
+    @classmethod
+    def _none_to_empty_list(cls, v):
+        return v if v is not None else []
 
 
 class ResumeUploadResponse(BaseModel):
@@ -18,18 +48,8 @@ class ResumeUploadResponse(BaseModel):
     candidate: CandidateInfo
 
 
-class InterviewQuestion(BaseModel):
-    question: str
-    dimension: str  # STAR dimension or category
-    focus: str  # what to focus on
-
-
-class GenerateQuestionsResponse(BaseModel):
-    questions: list[InterviewQuestion]
-
-
 class TranscriptEntry(BaseModel):
-    role: str  # "interviewer" | "candidate"
+    role: str
     text: str
     sentence_id: int = 0
 
@@ -37,26 +57,6 @@ class TranscriptEntry(BaseModel):
 class QARecord(BaseModel):
     question: str
     answer: str
-    analysis: str = ""
-
-
-class StarFollowUp(BaseModel):
-    dimension: str
-    question: str
-    purpose: str
-
-
-class RiskAssessment(BaseModel):
-    risk_level: str
-    risk_type: str
-    description: str
-    suggestion: str
-
-
-class AnalysisResult(BaseModel):
-    star_followups: list[StarFollowUp]
-    risk_assessments: list[RiskAssessment]
-    overall_comment: str = ""
 
 
 class SaveInterviewRequest(BaseModel):
@@ -65,9 +65,8 @@ class SaveInterviewRequest(BaseModel):
     resume_text: str = ""
     qa_history: list[dict] = []
     transcript: list[dict] = []
-    analysis: dict | None = None
     analysis_raw: str = ""
-    questions: list[dict] = []
+    questions_raw: str = ""
     notes: str = ""
 
 

@@ -2,10 +2,8 @@ import { useState, useCallback, useRef } from 'react';
 import type {
   CandidateInfo,
   InterviewStatus,
-  AnalysisResult,
   SpeakerRole,
   TranscriptEntry,
-  InterviewQuestion,
   QARecord,
   InterviewListItem,
 } from '../types';
@@ -19,18 +17,23 @@ export function useInterview() {
   const [currentPartial, setCurrentPartial] = useState('');
   const [interviewerText, setInterviewerText] = useState('');
   const [candidateText, setCandidateText] = useState('');
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [analysisRaw, setAnalysisRaw] = useState('');
   const [qaHistory, setQaHistory] = useState<QARecord[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
   const [questionsRaw, setQuestionsRaw] = useState('');
-  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(-1);
   const [savedInterviews, setSavedInterviews] = useState<InterviewListItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
+  const [incrementalRaw, setIncrementalRaw] = useState('');
+  const [followUpRaw, setFollowUpRaw] = useState('');
+
   const sentenceIdRef = useRef(0);
+  const wsSendRef = useRef<((data: any) => void) | null>(null);
+
+  const setWsSend = useCallback((fn: (data: any) => void) => {
+    wsSendRef.current = fn;
+  }, []);
 
   const handleASRResult = useCallback((data: any) => {
     if (data.type === 'partial') {
@@ -53,42 +56,21 @@ export function useInterview() {
       setCurrentPartial('');
     } else if (data.type === 'role_switched') {
       setCurrentRole(data.role);
-    } else if (data.type === 'questions_stream') {
-      setQuestionsRaw((prev) => prev + data.data);
-    } else if (data.type === 'questions_complete') {
-      try {
-        let content = data.data;
-        if (content.includes('```json')) {
-          content = content.split('```json')[1].split('```')[0];
-        } else if (content.includes('```')) {
-          content = content.split('```')[1].split('```')[0];
-        }
-        const parsed = JSON.parse(content.trim());
-        setInterviewQuestions(parsed.questions || []);
-      } catch {
-        // Keep raw text if parse fails
-      }
-      setIsGeneratingQuestions(false);
-      setQuestionsRaw('');
-    }
-  }, []);
-
-  const handleAnalysisStream = useCallback((data: any) => {
-    if (data.type === 'analysis_stream') {
+    } else if (data.type === 'incremental_analysis_stream') {
+      setIncrementalRaw((prev) => prev + data.data);
+    } else if (data.type === 'incremental_analysis_complete') {
+      // Keep incrementalRaw as-is
+    } else if (data.type === 'incremental_analysis_clear') {
+      setIncrementalRaw('');
+      setFollowUpRaw('');
+    } else if (data.type === 'follow_up_stream') {
+      setFollowUpRaw((prev) => prev + data.data);
+    } else if (data.type === 'follow_up_complete') {
+      // Keep followUpRaw as-is
+    } else if (data.type === 'analysis_stream') {
       setAnalysisRaw((prev) => prev + data.data);
     } else if (data.type === 'analysis_complete') {
-      try {
-        let content = data.data;
-        if (content.includes('```json')) {
-          content = content.split('```json')[1].split('```')[0];
-        } else if (content.includes('```')) {
-          content = content.split('```')[1].split('```')[0];
-        }
-        const parsed = JSON.parse(content.trim());
-        setAnalysis(parsed);
-      } catch {
-        setAnalysisRaw(data.data);
-      }
+      setIncrementalRaw('');
       setIsAnalyzing(false);
       setStatus('idle');
     }
@@ -96,6 +78,10 @@ export function useInterview() {
 
   const switchRole = useCallback((role: SpeakerRole) => {
     setCurrentRole(role);
+    // Clear follow-up when switching to candidate (new answer starts)
+    if (role === 'candidate') {
+      setFollowUpRaw('');
+    }
   }, []);
 
   const startInterview = useCallback(() => {
@@ -104,8 +90,9 @@ export function useInterview() {
     setCurrentPartial('');
     setInterviewerText('');
     setCandidateText('');
-    setAnalysis(null);
     setAnalysisRaw('');
+    setIncrementalRaw('');
+    setIsAnalyzing(false);
   }, []);
 
   const pauseInterview = useCallback(() => {
@@ -118,25 +105,75 @@ export function useInterview() {
 
   const stopInterview = useCallback(() => {
     setStatus('idle');
+    setIsAnalyzing(false);
+    setIncrementalRaw('');
   }, []);
 
   const submitAnswer = useCallback(() => {
     setIsAnalyzing(true);
     setStatus('analyzing');
+    setFollowUpRaw(''); // Clear follow-up suggestions when answer is submitted
   }, []);
 
-  const wsSendRef = useRef<((data: any) => void) | null>(null);
-
-  const setWsSend = useCallback((fn: (data: any) => void) => {
-    wsSendRef.current = fn;
-  }, []);
-
-  const generateQuestions = useCallback(() => {
+  // Independent of WebSocket — uses HTTP SSE
+  const generateQuestions = useCallback(async () => {
     if (!sessionId) return;
     setIsGeneratingQuestions(true);
     setQuestionsRaw('');
-    if (wsSendRef.current) {
-      wsSendRef.current({ type: 'control', action: 'generate_questions' });
+    console.log('[generateQuestions] start, sessionId:', sessionId);
+
+    try {
+      const url = `/api/interview/${sessionId}/generate-questions`;
+      console.log('[generateQuestions] fetching:', url);
+      const res = await fetch(url);
+      console.log('[generateQuestions] response status:', res.status, 'ok:', res.ok, 'has body:', !!res.body);
+      if (!res.ok || !res.body) {
+        console.error('[generateQuestions] fetch failed, status:', res.status);
+        setIsGeneratingQuestions(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let chunkCount = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          console.log('[generateQuestions] stream done, total chunks:', chunkCount);
+          break;
+        }
+
+        chunkCount++;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+            setQuestionsRaw((prev) => {
+              const next = prev + data;
+              if (chunkCount <= 3) console.log('[generateQuestions] chunk', chunkCount, 'data:', data.substring(0, 80));
+              return next;
+            });
+          }
+        }
+      }
+
+      // Process remaining buffer
+      if (buffer.startsWith('data: ')) {
+        const data = buffer.slice(6);
+        if (data !== '[DONE]') {
+          setQuestionsRaw((prev) => prev + data);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to generate questions:', e);
+    } finally {
+      setIsGeneratingQuestions(false);
     }
   }, [sessionId]);
 
@@ -157,9 +194,8 @@ export function useInterview() {
           candidate,
           qa_history: qaHistory,
           transcript,
-          analysis,
           analysis_raw: analysisRaw,
-          questions: interviewQuestions,
+          questions_raw: questionsRaw,
           notes,
         }),
       });
@@ -168,7 +204,7 @@ export function useInterview() {
     } finally {
       setIsSaving(false);
     }
-  }, [sessionId, candidate, qaHistory, transcript, analysis, analysisRaw, interviewQuestions]);
+  }, [sessionId, candidate, qaHistory, transcript, analysisRaw, questionsRaw]);
 
   const fetchInterviewList = useCallback(async () => {
     try {
@@ -192,15 +228,15 @@ export function useInterview() {
       setCandidate(data.candidate);
       setQaHistory(data.qa_history || []);
       setTranscript(data.transcript || []);
-      setAnalysis(data.analysis || null);
       setAnalysisRaw(data.analysis_raw || '');
-      setInterviewQuestions(data.questions || []);
+      setQuestionsRaw(data.questions_raw || '');
       setStatus('idle');
       setCurrentRole('interviewer');
       setCurrentPartial('');
       setInterviewerText('');
       setCandidateText('');
-      setActiveQuestionIndex(-1);
+      setIncrementalRaw('');
+      setFollowUpRaw('');
 
       return data.notes || '';
     } catch (e) {
@@ -218,18 +254,13 @@ export function useInterview() {
     currentPartial,
     interviewerText,
     candidateText,
-    analysis,
     analysisRaw,
     qaHistory,
     isAnalyzing,
-    interviewQuestions,
     isGeneratingQuestions,
     questionsRaw,
-    activeQuestionIndex,
-    setActiveQuestionIndex,
     switchRole,
     handleASRResult,
-    handleAnalysisStream,
     startInterview,
     pauseInterview,
     resumeInterview,
@@ -237,11 +268,14 @@ export function useInterview() {
     submitAnswer,
     generateQuestions,
     onUploadSuccess,
-    setWsSend,
     savedInterviews,
     isSaving,
     saveInterview,
     fetchInterviewList,
     loadInterview,
+    setWsSend,
+    incrementalRaw,
+    followUpRaw,
+    setFollowUpRaw,
   };
 }

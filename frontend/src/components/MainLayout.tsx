@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewQuestion, InterviewListItem } from '../types';
+import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem } from '../types';
 import { ResumeUploader } from './ResumeUploader';
 import { CandidatePanel } from './CandidatePanel';
 import { PDFViewer } from './PDFViewer';
@@ -17,16 +17,14 @@ interface Props {
   currentRole: SpeakerRole;
   transcript: TranscriptEntry[];
   currentPartial: string;
-  analysis: any;
   analysisRaw: string;
   isAnalyzing: boolean;
-  interviewQuestions: InterviewQuestion[];
   isGeneratingQuestions: boolean;
   questionsRaw: string;
-  activeQuestionIndex: number;
+  incrementalRaw: string;
+  followUpRaw: string;
   noteContent: string;
   onNoteChange: (v: string) => void;
-  onSelectQuestion: (index: number) => void;
   onUploadSuccess: (sessionId: string, candidate: CandidateInfo) => void;
   onSwitchRole: (role: SpeakerRole) => void;
   onStart: () => void;
@@ -44,11 +42,11 @@ interface Props {
 
 export const MainLayout: React.FC<Props> = ({
   candidate, sessionId, status, currentRole,
-  transcript, currentPartial, analysis, analysisRaw, isAnalyzing,
-  interviewQuestions, isGeneratingQuestions, questionsRaw, activeQuestionIndex,
+  transcript, currentPartial, analysisRaw, isAnalyzing,
+  isGeneratingQuestions, questionsRaw, incrementalRaw, followUpRaw,
   noteContent, onNoteChange,
   onUploadSuccess, onSwitchRole, onStart, onPause, onResume,
-  onStop, onSubmitAnswer, onGenerateQuestions, onSelectQuestion,
+  onStop, onSubmitAnswer, onGenerateQuestions,
   onSave, isSaving, savedInterviews, onLoadInterview, onFetchList,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
@@ -231,13 +229,15 @@ export const MainLayout: React.FC<Props> = ({
             onLoad={onLoadInterview}
           />
           <div className="right-top glow-card">
-            <QuestionPanel questions={interviewQuestions} isGenerating={isGeneratingQuestions}
+            <QuestionPanel isGenerating={isGeneratingQuestions}
               questionsRaw={questionsRaw}
-              onGenerate={onGenerateQuestions} activeIndex={activeQuestionIndex} onSelectQuestion={onSelectQuestion} />
+              followUpRaw={followUpRaw}
+              onGenerate={onGenerateQuestions} />
           </div>
           <div className="right-bottom glow-card">
-            <AnalysisPanel starFollowups={analysis?.star_followups || []} riskAssessments={analysis?.risk_assessments || []}
-              overallComment={analysis?.overall_comment || ''} rawText={analysisRaw} />
+            <AnalysisPanel analysisRaw={analysisRaw}
+              incrementalRaw={incrementalRaw}
+              isAnalyzing={isAnalyzing} />
           </div>
         </aside>
       </div>

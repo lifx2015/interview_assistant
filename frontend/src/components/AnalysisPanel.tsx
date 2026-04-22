@@ -1,135 +1,69 @@
 import React from 'react';
-import type { StarFollowUp, RiskAssessment } from '../types';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 interface Props {
-  starFollowups: StarFollowUp[];
-  riskAssessments: RiskAssessment[];
-  overallComment: string;
-  rawText?: string;
+  analysisRaw: string;
+  incrementalRaw: string;
+  isAnalyzing: boolean;
 }
 
-const dimensionTagClass: Record<string, string> = {
-  Situation: 'tag-situation',
-  Task: 'tag-task',
-  Action: 'tag-action',
-  Result: 'tag-result',
-};
-
-const riskLevelClass: Record<string, string> = {
-  low: 'risk-low',
-  medium: 'risk-medium',
-  high: 'risk-high',
-};
-
 export const AnalysisPanel: React.FC<Props> = ({
-  starFollowups,
-  riskAssessments,
-  overallComment,
-  rawText,
+  analysisRaw, incrementalRaw, isAnalyzing,
 }) => {
-  // Streaming mode: show raw text while LLM is generating
-  if (starFollowups.length === 0 && riskAssessments.length === 0 && rawText) {
-    return (
-      <div className="analysis-panel">
-        <div className="panel-header">
-          <h3 className="panel-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
-            </svg>
-            追问与风险
-          </h3>
-        </div>
-        <div className="analysis-raw typing-cursor">{rawText}</div>
-      </div>
-    );
-  }
+  const hasIncremental = incrementalRaw.length > 0;
+  const hasFinal = analysisRaw.length > 0 && !hasIncremental;
+  const isStreaming = isAnalyzing && !analysisRaw;
+
+  const displayText = hasIncremental ? incrementalRaw : hasFinal ? analysisRaw : '';
 
   return (
     <div className="analysis-panel">
-      <div className="panel-header">
-        <h3 className="panel-title">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
-          </svg>
-          追问与风险
-        </h3>
+      <div className="analysis-header">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <span>{hasFinal ? '深度分析' : '实时分析'}</span>
+        {(hasIncremental || isStreaming) && <span className="live-badge"><span className="live-dot-sm" />实时</span>}
       </div>
 
-      <div className="analysis-scroll">
-        {starFollowups.length > 0 && (
-          <div className="section animate-fade-in-up">
-            <div className="section-label">STAR 追问</div>
-            {starFollowups.map((item, i) => (
-              <div key={i} className="star-card">
-                <span className={`tag ${dimensionTagClass[item.dimension] || 'tag-situation'}`}>{item.dimension}</span>
-                <div className="star-question">{item.question}</div>
-                <div className="star-purpose">{item.purpose}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {riskAssessments.length > 0 && (
-          <div className="section animate-fade-in-up">
-            <div className="section-label">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)" strokeWidth="2">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-              风险评估
-            </div>
-            {riskAssessments.map((item, i) => (
-              <div key={i} className="risk-card">
-                <div className="risk-header">
-                  <span className={`risk-level ${riskLevelClass[item.risk_level] || 'risk-medium'}`}>{item.risk_level.toUpperCase()}</span>
-                  <span className="risk-type">{item.risk_type}</span>
-                </div>
-                <div className="risk-desc">{item.description}</div>
-                <div className="risk-suggestion">建议：{item.suggestion}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {overallComment && (
-          <div className="section animate-fade-in-up">
-            <div className="section-label">总体评价</div>
-            <div className="overall-card">{overallComment}</div>
+      <div className="analysis-body">
+        {displayText ? (
+          <MarkdownRenderer content={displayText} isStreaming={hasIncremental || isStreaming} />
+        ) : (
+          <div className="analysis-empty">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <p>候选人回答时将实时生成分析</p>
           </div>
         )}
       </div>
 
       <style>{`
         .analysis-panel { display: flex; flex-direction: column; height: 100%; }
-        .panel-header { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
-        .panel-title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
-        .analysis-scroll { flex: 1; overflow-y: auto; padding: 10px 16px; }
-        .analysis-raw { font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; padding: 16px; }
-        .section { margin-bottom: 14px; }
-        .section-label {
-          font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
-          margin-bottom: 8px; display: flex; align-items: center; gap: 5px;
-          color: var(--accent-cyan);
+
+        .analysis-header {
+          display: flex; align-items: center; gap: 6px;
+          padding: 8px 12px; border-bottom: 1px solid var(--border-color);
+          font-size: 12px; font-weight: 600; color: var(--text-primary); flex-shrink: 0;
         }
-        .star-card {
-          padding: 10px 12px; margin-bottom: 6px; border-radius: var(--radius-sm);
-          background: rgba(0,0,0,0.2); border: 1px solid var(--border-color);
+        .live-badge {
+          display: inline-flex; align-items: center; gap: 4px;
+          font-size: 10px; color: var(--accent-cyan); margin-left: auto;
+          padding: 2px 6px; border-radius: 8px;
+          background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2);
         }
-        .star-question { font-size: 13px; color: var(--text-primary); line-height: 1.5; margin: 6px 0 2px; }
-        .star-purpose { font-size: 11px; color: var(--text-muted); }
-        .risk-card {
-          padding: 10px 12px; margin-bottom: 6px; border-radius: var(--radius-sm);
-          background: rgba(0,0,0,0.2); border: 1px solid var(--border-color);
+        .live-dot-sm {
+          width: 5px; height: 5px; border-radius: 50%; background: var(--accent-cyan);
+          animation: pulse-dot 1s ease-in-out infinite;
         }
-        .risk-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-        .risk-level { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
-        .risk-type { font-size: 12px; color: var(--text-secondary); }
-        .risk-desc { font-size: 12px; color: var(--text-primary); line-height: 1.5; margin-bottom: 4px; }
-        .risk-suggestion { font-size: 11px; color: var(--text-muted); }
-        .overall-card {
-          padding: 10px 12px; border-radius: var(--radius-sm);
-          background: rgba(0,0,0,0.2); border: 1px solid var(--border-color);
-          font-size: 12px; color: var(--text-secondary); line-height: 1.6;
+
+        .analysis-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+
+        .analysis-empty {
+          height: 100%; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 8px;
+          color: var(--text-muted); font-size: 12px; text-align: center; padding: 20px;
         }
       `}</style>
     </div>

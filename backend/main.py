@@ -12,6 +12,7 @@ from backend.services import database
 async def lifespan(app: FastAPI):
     await database.init_db()
     yield
+    await database.close_db()
 
 
 app = FastAPI(title="AI Interview Assistant", version="1.0.0", lifespan=lifespan)
