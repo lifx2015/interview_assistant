@@ -83,7 +83,11 @@ async def generate_questions(session_id: str):
                 chunk_count += 1
                 if chunk_count <= 3:
                     logger.info("[generate-questions] chunk %d: %s", chunk_count, chunk[:80])
-                yield f"data: {chunk}\n\n"
+                # SSE multi-line format: each line prefixed with "data:"
+                lines = chunk.split('\n')
+                for line in lines:
+                    yield f"data: {line}\n"
+                yield "\n"
             logger.info("[generate-questions] stream done, total chunks=%d", chunk_count)
         except Exception as e:
             logger.error("[generate-questions] stream error: %s", e, exc_info=True)

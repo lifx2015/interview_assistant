@@ -147,27 +147,20 @@ export function useInterview() {
 
         chunkCount++;
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
+        // SSE: process complete messages (ending with \n\n)
+        let pos;
+        while ((pos = buffer.indexOf('\n\n')) !== -1) {
+          const message = buffer.slice(0, pos);
+          buffer = buffer.slice(pos + 2);
+
+          if (message.startsWith('data: ')) {
+            const data = message.slice(6);
             if (data === '[DONE]') continue;
-            setQuestionsRaw((prev) => {
-              const next = prev + data;
-              if (chunkCount <= 3) console.log('[generateQuestions] chunk', chunkCount, 'data:', data.substring(0, 80));
-              return next;
-            });
+            // SSE multi-line format: "data: line1\ndata: line2" -> join with \n
+            const content = data.split('\ndata: ').join('\n');
+            setQuestionsRaw((prev) => prev + content);
           }
-        }
-      }
-
-      // Process remaining buffer
-      if (buffer.startsWith('data: ')) {
-        const data = buffer.slice(6);
-        if (data !== '[DONE]') {
-          setQuestionsRaw((prev) => prev + data);
         }
       }
     } catch (e) {
