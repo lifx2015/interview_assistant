@@ -18,13 +18,25 @@ class _ASRCallback(RecognitionCallback):
 
     def on_event(self, result: RecognitionResult):
         sentence = result.get_sentence()
-        if sentence and sentence.text:
-            if result.get_sentence().end_time is not None:
+        if sentence and isinstance(sentence, dict) and sentence.get('text'):
+            end_time = sentence.get('end_time')
+            text = sentence['text']
+            index = sentence.get('index', 0)
+            if end_time is not None:
                 # Sentence complete
-                self.on_sentence(sentence.text, sentence.index if hasattr(sentence, 'index') else 0)
+                self.on_sentence(text, index)
             else:
                 # Partial result
-                self.on_partial(sentence.text, sentence.index if hasattr(sentence, 'index') else 0)
+                self.on_partial(text, index)
+        elif sentence and hasattr(sentence, 'text') and sentence.text:
+            # Fallback for object-style sentence
+            end_time = getattr(result.get_sentence(), 'end_time', None)
+            text = sentence.text
+            index = getattr(sentence, 'index', 0)
+            if end_time is not None:
+                self.on_sentence(text, index)
+            else:
+                self.on_partial(text, index)
 
     def on_complete(self):
         pass
