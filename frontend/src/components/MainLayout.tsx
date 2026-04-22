@@ -56,7 +56,6 @@ export const MainLayout: React.FC<Props> = ({
   const [listOpen, setListOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
-  const liveTranscriptRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<'left' | 'right' | 'note' | null>(null);
 
   const startDrag = useCallback((side: 'left' | 'right' | 'note') => (e: React.MouseEvent) => {
@@ -92,13 +91,6 @@ export const MainLayout: React.FC<Props> = ({
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   }, []);
-
-  // Auto-scroll live transcript
-  React.useEffect(() => {
-    if (liveTranscriptRef.current) {
-      liveTranscriptRef.current.scrollTop = liveTranscriptRef.current.scrollHeight;
-    }
-  }, [transcript, currentPartial]);
 
   return (
     <div className="main-layout">
@@ -162,35 +154,9 @@ export const MainLayout: React.FC<Props> = ({
 
         {/* CENTER */}
         <main className="col-center" ref={centerRef}>
-          {/* PDF / Upload / Live Transcript */}
+          {/* PDF / Upload */}
           <div className="center-top">
-            {status === 'recording' || status === 'paused' || status === 'analyzing' ? (
-              <div className="live-transcript-area">
-                <div className="live-transcript-header">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" />
-                    <line x1="8" y1="23" x2="16" y2="23" />
-                  </svg>
-                  <span>实时对话</span>
-                  {status === 'recording' && <span className="live-dot" />}
-                </div>
-                <div className="live-transcript-body" ref={liveTranscriptRef}>
-                  {transcript.map((entry) => (
-                    <div key={entry.id} className={`live-msg ${entry.role}`}>
-                      <span className="live-msg-role">{entry.role === 'interviewer' ? '面试官' : '候选人'}</span>
-                      <span className="live-msg-text">{entry.text}</span>
-                    </div>
-                  ))}
-                  {currentPartial && (
-                    <div className={`live-msg ${currentRole} partial`}>
-                      <span className="live-msg-role">{currentRole === 'interviewer' ? '面试官' : '候选人'}</span>
-                      <span className="live-msg-text">{currentPartial}<span className="typing-cursor" /></span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : sessionId ? (
+            {sessionId ? (
               <PDFViewer sessionId={sessionId} />
             ) : (
               <ResumeUploader onUploadSuccess={onUploadSuccess} />
@@ -289,38 +255,6 @@ export const MainLayout: React.FC<Props> = ({
 
         .col-center { flex: 1; display: flex; flex-direction: column; background: var(--bg-secondary); overflow: hidden; min-width: 300px; }
         .center-top { flex: 1; overflow: hidden; min-height: 100px; position: relative; }
-
-        .live-transcript-area { display: flex; flex-direction: column; height: 100%; background: var(--bg-secondary); }
-        .live-transcript-header {
-          display: flex; align-items: center; gap: 8px;
-          padding: 10px 16px; border-bottom: 1px solid var(--border-color);
-          font-size: 13px; font-weight: 600; color: var(--text-primary); flex-shrink: 0;
-        }
-        .live-dot {
-          width: 8px; height: 8px; border-radius: 50%; background: var(--accent-red);
-          animation: pulse-dot 1s ease-in-out infinite; margin-left: auto;
-        }
-        .live-transcript-body {
-          flex: 1; overflow-y: auto; padding: 12px 16px;
-          display: flex; flex-direction: column; gap: 10px;
-        }
-        .live-msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; }
-        .live-msg.interviewer {
-          align-self: flex-start; background: rgba(0,102,255,0.08);
-          border: 1px solid rgba(0,102,255,0.15); border-bottom-left-radius: 4px;
-        }
-        .live-msg.candidate {
-          align-self: flex-end; background: rgba(0,255,136,0.05);
-          border: 1px solid rgba(0,255,136,0.12); border-bottom-right-radius: 4px;
-        }
-        .live-msg.partial { opacity: 0.7; }
-        .live-msg-role {
-          display: block; font-size: 10px; font-weight: 600;
-          text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 3px;
-        }
-        .live-msg.interviewer .live-msg-role { color: #6699ff; }
-        .live-msg.candidate .live-msg-role { color: var(--accent-green); }
-        .live-msg-text { font-size: 14px; line-height: 1.6; color: var(--text-primary); }
 
         .iframe-shield {
           position: absolute; inset: 0; z-index: 10; cursor: col-resize;
