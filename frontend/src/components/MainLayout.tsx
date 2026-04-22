@@ -188,9 +188,6 @@ export const MainLayout: React.FC<Props> = ({
                       <span className="live-msg-text">{currentPartial}<span className="typing-cursor" /></span>
                     </div>
                   )}
-                  {transcript.length === 0 && !currentPartial && (
-                    <div className="live-empty">等待语音输入...</div>
-                  )}
                 </div>
               </div>
             ) : sessionId ? (
@@ -306,10 +303,6 @@ export const MainLayout: React.FC<Props> = ({
         .live-transcript-body {
           flex: 1; overflow-y: auto; padding: 12px 16px;
           display: flex; flex-direction: column; gap: 10px;
-        }
-        .live-empty {
-          height: 100%; display: flex; align-items: center; justify-content: center;
-          color: var(--text-muted); font-size: 13px;
         }
         .live-msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; }
         .live-msg.interviewer {
