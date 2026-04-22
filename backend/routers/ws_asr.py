@@ -1,3 +1,6 @@
+"""
+WebSocket ASR 路由 - 集成声纹识别
+"""
 import asyncio
 import json
 
@@ -5,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.routers.sessions import get_sessions
 from backend.services.asr_service import ASRService
+from backend.services.voiceprint_service import voiceprint_service
 from backend.services.llm_service import (
     analyze_answer_stream,
     incremental_analyze_stream,
@@ -33,7 +37,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
     result_queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
-    # Current speaker role, controlled by frontend
+    # Current speaker role, controlled by frontend or voiceprint
     current_role = "interviewer"
 
     # Accumulated sentences per role
@@ -45,6 +49,11 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
     # Current question being asked (accumulated interviewer text for this round)
     current_question = ""
+
+    # Voiceprint settings
+    voiceprint_enabled = False  # 是否启用了声纹识别自动切换
+    recent_audio_chunks = []    # 用于声纹识别的音频缓冲区
+    VOICEPRINT_CHUNK_COUNT = 5  # 每5个音频块检测一次
 
     def on_partial(text: str, sentence_id: int):
         asyncio.run_coroutine_threadsafe(
@@ -75,6 +84,36 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         )
 
     asr_started = False
+
+    async def check_voiceprint_and_switch(audio_data: bytes):
+        """使用声纹识别检测说话人并自动切换角色"""
+        nonlocal current_role
+
+        if not voiceprint_enabled:
+            return
+
+        # 检查当前会话是否有声纹
+        voiceprints = voiceprint_service.get_session_voiceprints(session_id)
+        if len(voiceprints) < 2:
+            return  # 需要至少2个声纹才能识别
+
+        # 进行声纹识别
+        result = voiceprint_service.identify_speaker(
+            audio_data=audio_data,
+            session_id=session_id,
+            threshold=0.5  # 降低阈值以适应实时音频片段
+        )
+
+        if result.get("matched") and result.get("role") != current_role:
+            detected_role = result["role"]
+            print(f"[Voiceprint] Detected role change: {current_role} -> {detected_role} (confidence: {result.get('confidence', 0):.2f})")
+            current_role = detected_role
+            await websocket.send_json({
+                "type": "role_switched",
+                "role": current_role,
+                "detected_by": "voiceprint",
+                "confidence": result.get("confidence", 0),
+            })
 
     async def run_incremental_analysis(sentence: str):
         """Run incremental analysis for a candidate sentence. Handles debouncing."""
@@ -183,10 +222,20 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
             if "bytes" in raw and raw["bytes"]:
                 audio_data = raw["bytes"]
+
+                # 收集音频块用于声纹识别
+                if voiceprint_enabled:
+                    recent_audio_chunks.append(audio_data)
+                    if len(recent_audio_chunks) >= VOICEPRINT_CHUNK_COUNT:
+                        # 合并音频块进行声纹识别
+                        combined_audio = b"".join(recent_audio_chunks)
+                        await check_voiceprint_and_switch(combined_audio)
+                        recent_audio_chunks = []  # 清空缓冲区
+
                 if not asr_started:
                     asr.start(on_partial=on_partial, on_sentence=on_sentence, on_error=on_error)
                     asr_started = True
-                asr.send_audio(audio_data)
+                asr.send_audio_data(audio_data)
 
             elif "text" in raw and raw["text"]:
                 msg = json.loads(raw["text"])
@@ -200,6 +249,24 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                         await websocket.send_json({
                             "type": "role_switched",
                             "role": current_role,
+                            "detected_by": "manual",
+                        })
+
+                    elif action == "enable_voiceprint":
+                        voiceprint_enabled = True
+                        await websocket.send_json({
+                            "type": "voiceprint_status",
+                            "enabled": True,
+                            "message": "声纹识别已启用"
+                        })
+
+                    elif action == "disable_voiceprint":
+                        voiceprint_enabled = False
+                        recent_audio_chunks = []
+                        await websocket.send_json({
+                            "type": "voiceprint_status",
+                            "enabled": False,
+                            "message": "声纹识别已禁用"
                         })
 
                     elif action == "answer_complete":

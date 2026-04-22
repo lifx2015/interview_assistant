@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 
@@ -133,4 +134,7 @@ async def load_interview(session_id: str) -> dict | None:
     row["candidate"] = json.loads(row["candidate"])
     row["qa_history"] = json.loads(row["qa_history"])
     row["transcript"] = json.loads(row["transcript"])
+    # Convert BLOB to base64 string for JSON serialization
+    if row.get("pdf_content") and isinstance(row["pdf_content"], bytes):
+        row["pdf_content"] = base64.b64encode(row["pdf_content"]).decode("utf-8")
     return row

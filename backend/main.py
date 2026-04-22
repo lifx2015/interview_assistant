@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
-from backend.routers import resume, interview, ws_asr
+from backend.routers import resume, interview, ws_asr, voiceprint
 from backend.services import database
 
 
@@ -27,6 +27,7 @@ app.add_middleware(
 
 app.include_router(resume.router, prefix="/api")
 app.include_router(interview.router, prefix="/api")
+app.include_router(voiceprint.router, prefix="/api")
 app.include_router(ws_asr.router)
 
 

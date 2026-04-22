@@ -65,6 +65,10 @@ class ASRService:
         if self._recognition:
             self._recognition.send_audio_frame(audio_data)
 
+    def send_audio_data(self, audio_data: bytes):
+        """Alias for send_audio for backward compatibility"""
+        self.send_audio(audio_data)
+
     def stop(self):
         if self._recognition:
             self._recognition.stop()

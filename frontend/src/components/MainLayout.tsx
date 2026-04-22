@@ -9,6 +9,7 @@ import { ControlBar } from './ControlBar';
 import { QuestionPanel } from './QuestionPanel';
 import { AnalysisPanel } from './AnalysisPanel';
 import { InterviewListPanel } from './InterviewListPanel';
+import { VoiceprintPanel } from './VoiceprintPanel';
 
 interface Props {
   candidate: CandidateInfo | null;
@@ -38,6 +39,8 @@ interface Props {
   savedInterviews: InterviewListItem[];
   onLoadInterview: (sessionId: string) => void;
   onFetchList: () => void;
+  voiceprintEnabled?: boolean;
+  onToggleVoiceprint?: () => void;
 }
 
 export const MainLayout: React.FC<Props> = ({
@@ -48,6 +51,7 @@ export const MainLayout: React.FC<Props> = ({
   onUploadSuccess, onSwitchRole, onStart, onPause, onResume,
   onStop, onSubmitAnswer, onGenerateQuestions,
   onSave, isSaving, savedInterviews, onLoadInterview, onFetchList,
+  voiceprintEnabled, onToggleVoiceprint,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
   const [rightWidth, setRightWidth] = useState(400);
@@ -191,6 +195,19 @@ export const MainLayout: React.FC<Props> = ({
             onClose={() => setListOpen(false)}
             onLoad={onLoadInterview}
           />
+          {sessionId && (
+            <div className="voiceprint-section">
+              <VoiceprintPanel
+                sessionId={sessionId}
+                onVoiceprintRegistered={(vps) => {
+                  // 当注册了两个声纹后，可以自动启用声纹识别
+                  if (vps.length >= 2 && !voiceprintEnabled && onToggleVoiceprint) {
+                    onToggleVoiceprint();
+                  }
+                }}
+              />
+            </div>
+          )}
           <div className="right-top glow-card">
             <QuestionPanel isGenerating={isGeneratingQuestions}
               questionsRaw={questionsRaw}
@@ -267,7 +284,13 @@ export const MainLayout: React.FC<Props> = ({
 
         .center-bottom { height: 180px; min-height: 140px; display: flex; flex-direction: column; border-top: 1px solid var(--border-color); flex-shrink: 0; }
 
-        .col-right { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
+        .col-right { display: flex; flex-direction: column; flex-shrink: 0; }
+        .voiceprint-section {
+          background: var(--bg-secondary);
+          border-bottom: 1px solid var(--border-color);
+          max-height: 250px;
+          overflow-y: auto;
+        }
         .right-top { flex: 1; background: var(--bg-secondary); overflow: hidden; }
         .right-bottom { flex: 1; background: var(--bg-secondary); overflow: hidden; }
       `}</style>

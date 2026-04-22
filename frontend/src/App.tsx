@@ -12,14 +12,21 @@ function App() {
   const interview = useInterview();
   const audioStartedRef = useRef(false);
   const [noteContent, setNoteContent] = useState('');
+  const [voiceprintEnabled, setVoiceprintEnabled] = useState(false);
 
   const handleWSMessage = useCallback((data: any) => {
     if (data.type === 'error') {
       console.error('WS error:', data.data);
+    } else if (data.type === 'role_switched') {
+      // 声纹识别自动切换角色
+      if (data.detected_by === 'voiceprint') {
+        console.log('[Voiceprint] Auto-switched role to:', data.role, 'confidence:', data.confidence);
+      }
+      interview.switchRole(data.role);
     } else {
       interview.handleASRResult(data);
     }
-  }, [interview.handleASRResult]);
+  }, [interview.handleASRResult, interview.switchRole]);
 
   const ws = useWebSocket({
     url: `ws://${window.location.hostname}:8000/ws/asr/${interview.sessionId || 'pending'}`,
@@ -75,6 +82,12 @@ function App() {
     ws.send({ type: 'control', action: 'switch_role', role });
   }, [interview.switchRole, ws.send]);
 
+  const handleToggleVoiceprint = useCallback(() => {
+    const newEnabled = !voiceprintEnabled;
+    setVoiceprintEnabled(newEnabled);
+    ws.send({ type: 'control', action: newEnabled ? 'enable_voiceprint' : 'disable_voiceprint' });
+  }, [voiceprintEnabled, ws.send]);
+
   const handleSave = useCallback(() => {
     interview.saveInterview(noteContent);
   }, [interview.saveInterview, noteContent]);
@@ -115,6 +128,8 @@ function App() {
       savedInterviews={interview.savedInterviews}
       onLoadInterview={handleLoadInterview}
       onFetchList={interview.fetchInterviewList}
+      voiceprintEnabled={voiceprintEnabled}
+      onToggleVoiceprint={handleToggleVoiceprint}
     />
   );
 }
