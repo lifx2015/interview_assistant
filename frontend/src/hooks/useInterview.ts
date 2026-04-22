@@ -36,6 +36,7 @@ export function useInterview() {
   }, []);
 
   const handleASRResult = useCallback((data: any) => {
+    console.log('[useInterview] handleASRResult:', data);
     if (data.type === 'partial') {
       setCurrentPartial(data.text);
     } else if (data.type === 'sentence') {

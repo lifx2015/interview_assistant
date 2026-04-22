@@ -20,8 +20,12 @@ export const TranscriptPanel: React.FC<Props> = ({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript, currentPartial]);
 
+  // Debug: log to see if currentPartial is being received
+  console.log('[TranscriptPanel] status:', status, 'currentPartial:', currentPartial, 'transcript.length:', transcript.length);
+
   return (
     <div className="transcript-area">
+      {/* Always show status hint at top when empty or recording */}
       {transcript.length === 0 && !currentPartial && (
         <div className="transcript-empty">
           {status === 'recording'
@@ -29,6 +33,14 @@ export const TranscriptPanel: React.FC<Props> = ({
             : status === 'paused' ? '已暂停' : '等待开始录音'}
         </div>
       )}
+
+      {/* Show partial text prominently when recording */}
+      {status === 'recording' && currentPartial && (
+        <div className="partial-hint">
+          正在识别: <span className="partial-text">{currentPartial}</span>
+        </div>
+      )}
+
       {transcript.map((entry) => (
         <div key={entry.id} className={`bubble ${entry.role} animate-fade-in-up`}>
           <span className="bubble-label">{entry.role === 'interviewer' ? '面试官' : '候选人'}</span>
@@ -51,6 +63,19 @@ export const TranscriptPanel: React.FC<Props> = ({
         .transcript-empty {
           height: 100%; display: flex; align-items: center; justify-content: center;
           color: var(--text-muted); font-size: 13px;
+        }
+        .partial-hint {
+          padding: 8px 12px;
+          background: rgba(0, 212, 255, 0.1);
+          border: 1px solid rgba(0, 212, 255, 0.3);
+          border-radius: 8px;
+          font-size: 12px;
+          color: var(--text-secondary);
+          margin-bottom: 8px;
+        }
+        .partial-hint .partial-text {
+          color: var(--accent-cyan);
+          font-weight: 500;
         }
         .bubble { max-width: 88%; padding: 8px 12px; border-radius: 10px; }
         .bubble.interviewer {
