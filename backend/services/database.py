@@ -46,6 +46,25 @@ async def init_db() -> None:
     await db.execute(CREATE_TABLE_SQL)
     await db.commit()
 
+    # Migration: add missing columns if they don't exist
+    cursor = await db.execute("PRAGMA table_info(interviews)")
+    columns = [row[1] for row in await cursor.fetchall()]
+
+    migrations = []
+    if "questions_raw" not in columns:
+        migrations.append("ALTER TABLE interviews ADD COLUMN questions_raw TEXT NOT NULL DEFAULT ''")
+    if "resume_text" not in columns:
+        migrations.append("ALTER TABLE interviews ADD COLUMN resume_text TEXT NOT NULL DEFAULT ''")
+    if "pdf_content" not in columns:
+        migrations.append("ALTER TABLE interviews ADD COLUMN pdf_content BLOB")
+    if "pdf_filename" not in columns:
+        migrations.append("ALTER TABLE interviews ADD COLUMN pdf_filename TEXT")
+
+    for sql in migrations:
+        await db.execute(sql)
+    if migrations:
+        await db.commit()
+
 
 async def close_db() -> None:
     global _db
@@ -96,7 +115,7 @@ async def save_interview(data: dict) -> None:
                (session_id, candidate, candidate_name, resume_text, qa_history,
                 transcript, analysis_raw, questions_raw, notes,
                 pdf_content, pdf_filename)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data["session_id"],
                 candidate_json,
