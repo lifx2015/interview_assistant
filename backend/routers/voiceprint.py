@@ -1,5 +1,5 @@
 """
-声纹识别 API 路由
+声纹识别 API 路由 - 支持多种声纹识别渠道
 """
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
@@ -8,6 +8,26 @@ from typing import Optional
 from backend.services.voiceprint_service import voiceprint_service
 
 router = APIRouter(prefix="/voiceprint", tags=["voiceprint"])
+
+
+class ProviderSwitchRequest(BaseModel):
+    provider: str  # "simple" or "speechbrain"
+
+
+@router.get("/providers")
+async def get_providers():
+    """获取所有可用的声纹识别渠道"""
+    return voiceprint_service.get_provider_info()
+
+
+@router.post("/provider")
+async def switch_provider(req: ProviderSwitchRequest):
+    """切换声纹识别渠道"""
+    result = voiceprint_service.set_provider(req.provider)
+    if result.get("success"):
+        return result
+    else:
+        raise HTTPException(status_code=400, detail=result.get("error", "切换失败"))
 
 
 class VoiceprintRegisterRequest(BaseModel):
@@ -26,18 +46,18 @@ class VoiceprintResponse(BaseModel):
 @router.post("/enroll")
 async def enroll_voiceprint(
     voice_id: str = Form(...),
-    role: str = Form(...),
     name: str = Form(...),
-    session_id: str = Form(...),
+    role: str = Form("interviewer"),
+    session_id: str = Form(None),
     audio_file: UploadFile = File(...)
 ):
     """
-    注册声纹
+    注册声纹（默认录入面试官到全局会话）
 
     - voice_id: 唯一标识符
-    - role: interviewer 或 candidate
     - name: 显示名称
-    - session_id: 会话ID
+    - role: 角色（默认 interviewer）
+    - session_id: 会话ID（默认全局会话）
     - audio_file: 音频文件 (PCM/WAV格式)
     """
     try:
@@ -45,9 +65,9 @@ async def enroll_voiceprint(
 
         result = voiceprint_service.enroll_voiceprint(
             voice_id=voice_id,
-            role=role,
             name=name,
             audio_data=audio_data,
+            role=role,
             session_id=session_id
         )
 
@@ -65,10 +85,10 @@ async def enroll_voiceprint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/list/{session_id}")
-async def list_voiceprints(session_id: str):
-    """获取会话的所有声纹"""
-    voiceprints = voiceprint_service.get_session_voiceprints(session_id)
+@router.get("/list")
+async def list_voiceprints():
+    """获取所有全局面试官声纹"""
+    voiceprints = voiceprint_service.get_global_voiceprints()
     return {
         "success": True,
         "voiceprints": voiceprints,
@@ -86,10 +106,10 @@ async def delete_voiceprint(voice_id: str):
     }
 
 
-@router.delete("/clear/{session_id}")
-async def clear_session_voiceprints(session_id: str):
-    """清除会话的所有声纹"""
-    count = voiceprint_service.clear_session_voiceprints(session_id)
+@router.delete("/clear")
+async def clear_all_voiceprints():
+    """清除所有全局面试官声纹"""
+    count = voiceprint_service.clear_session_voiceprints()
     return {
         "success": True,
         "message": f"已清除 {count} 个声纹"

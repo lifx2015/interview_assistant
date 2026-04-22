@@ -1,0 +1,11 @@
+{
+  "interviewer_001": {
+    "voice_id": "interviewer_001",
+    "role": "interviewer",
+    "name": "张三",
+    "session_id": "global_interviewers",
+    "audio_file": "data\\voiceprints\\interviewer_001.pcm",
+    "provider": "simple",
+    "sample_duration": 6.0025
+  }
+}

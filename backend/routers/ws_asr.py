@@ -92,27 +92,29 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         if not voiceprint_enabled:
             return
 
-        # 检查当前会话是否有声纹
-        voiceprints = voiceprint_service.get_session_voiceprints(session_id)
-        if len(voiceprints) < 2:
-            return  # 需要至少2个声纹才能识别
+        # 检查是否有全局面试官声纹
+        voiceprints = voiceprint_service.get_global_voiceprints()
+        if not voiceprints:
+            return  # 没有录入面试官声纹，无法识别
 
-        # 进行声纹识别
+        # 使用新的识别方法（带缓存）
         result = voiceprint_service.identify_speaker(
             audio_data=audio_data,
-            session_id=session_id,
             threshold=0.5  # 降低阈值以适应实时音频片段
         )
 
-        if result.get("matched") and result.get("role") != current_role:
-            detected_role = result["role"]
-            print(f"[Voiceprint] Detected role change: {current_role} -> {detected_role} (confidence: {result.get('confidence', 0):.2f})")
+        detected_role = result.get("role", "candidate")
+
+        # 如果识别结果发生变化
+        if detected_role != current_role:
+            print(f"[Voiceprint] Detected role change: {current_role} -> {detected_role} (confidence: {result.get('confidence', 0):.2f}, cached: {result.get('cached', False)})")
             current_role = detected_role
             await websocket.send_json({
                 "type": "role_switched",
                 "role": current_role,
                 "detected_by": "voiceprint",
                 "confidence": result.get("confidence", 0),
+                "cached": result.get("cached", False),
             })
 
     async def run_incremental_analysis(sentence: str):

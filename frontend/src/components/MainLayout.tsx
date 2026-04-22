@@ -10,6 +10,7 @@ import { QuestionPanel } from './QuestionPanel';
 import { AnalysisPanel } from './AnalysisPanel';
 import { InterviewListPanel } from './InterviewListPanel';
 import { VoiceprintPanel } from './VoiceprintPanel';
+import { Link } from 'react-router-dom';
 
 interface Props {
   candidate: CandidateInfo | null;
@@ -125,6 +126,14 @@ export const MainLayout: React.FC<Props> = ({
                 <line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
               </svg>
             </button>
+          <Link to="/voiceprint" className="btn btn-voiceprint">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+            声纹管理
+          </Link>
           {status === 'recording' && (
             <div className={`rec-badge ${currentRole}`}>
               <span className="rec-dot" />
@@ -247,6 +256,15 @@ export const MainLayout: React.FC<Props> = ({
         }
         .btn-save:hover:not(:disabled) { border-color: var(--accent-green); box-shadow: 0 0 12px rgba(0,255,136,0.15); }
         .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-voiceprint {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 5px 12px; border: 1px solid rgba(0,212,255,0.3); border-radius: 6px;
+          background: rgba(0,212,255,0.06); color: var(--accent-cyan);
+          font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+          text-decoration: none;
+        }
+        .btn-voiceprint:hover { border-color: var(--accent-cyan); box-shadow: 0 0 12px rgba(0,212,255,0.15); }
 
         .btn-list {
           display: inline-flex; align-items: center; justify-content: center;
