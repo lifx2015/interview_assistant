@@ -6,6 +6,8 @@ import type {
   TranscriptEntry,
   QARecord,
   InterviewListItem,
+  Question,
+  BankQuestionGroup,
 } from '../types';
 
 export function useInterview() {
@@ -25,8 +27,12 @@ export function useInterview() {
   const [savedInterviews, setSavedInterviews] = useState<InterviewListItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  const [incrementalRaw, setIncrementalRaw] = useState('');
   const [followUpRaw, setFollowUpRaw] = useState('');
+  const [evaluationRaw, setEvaluationRaw] = useState('');
+  const [isEvaluating, setIsEvaluating] = useState(false);
+
+  // 按题库分组的题目
+  const [bankQuestionGroups, setBankQuestionGroups] = useState<BankQuestionGroup[]>([]);
 
   const sentenceIdRef = useRef(0);
   const wsSendRef = useRef<((data: any) => void) | null>(null);
@@ -57,23 +63,23 @@ export function useInterview() {
       setCurrentPartial('');
     } else if (data.type === 'role_switched') {
       setCurrentRole(data.role);
-    } else if (data.type === 'incremental_analysis_stream') {
-      setIncrementalRaw((prev) => prev + data.data);
-    } else if (data.type === 'incremental_analysis_complete') {
-      // Keep incrementalRaw as-is
-    } else if (data.type === 'incremental_analysis_clear') {
-      setIncrementalRaw('');
-      setFollowUpRaw('');
     } else if (data.type === 'follow_up_stream') {
-      setFollowUpRaw((prev) => prev + data.data);
+      setFollowUpRaw((prev: string) => prev + data.data);
     } else if (data.type === 'follow_up_complete') {
       // Keep followUpRaw as-is
-    } else if (data.type === 'analysis_stream') {
-      setAnalysisRaw((prev) => prev + data.data);
-    } else if (data.type === 'analysis_complete') {
-      setIncrementalRaw('');
+    } else if (data.type === 'follow_up_clear') {
+      setFollowUpRaw('');
+    } else if (data.type === 'answer_complete_ack') {
       setIsAnalyzing(false);
       setStatus('idle');
+      setFollowUpRaw('');
+    } else if (data.type === 'evaluation_start') {
+      setIsEvaluating(true);
+      setEvaluationRaw('');
+    } else if (data.type === 'evaluation_stream') {
+      setEvaluationRaw((prev: string) => prev + data.data);
+    } else if (data.type === 'evaluation_complete') {
+      setIsEvaluating(false);
     }
   }, []);
 
@@ -92,8 +98,10 @@ export function useInterview() {
     setInterviewerText('');
     setCandidateText('');
     setAnalysisRaw('');
-    setIncrementalRaw('');
+    setFollowUpRaw('');
+    setEvaluationRaw('');
     setIsAnalyzing(false);
+    setIsEvaluating(false);
   }, []);
 
   const pauseInterview = useCallback(() => {
@@ -107,13 +115,11 @@ export function useInterview() {
   const stopInterview = useCallback(() => {
     setStatus('idle');
     setIsAnalyzing(false);
-    setIncrementalRaw('');
+    setFollowUpRaw('');
   }, []);
 
   const submitAnswer = useCallback(() => {
-    setIsAnalyzing(true);
-    setStatus('analyzing');
-    setFollowUpRaw(''); // Clear follow-up suggestions when answer is submitted
+    setFollowUpRaw('');
   }, []);
 
   // Independent of WebSocket — uses HTTP SSE
@@ -229,14 +235,46 @@ export function useInterview() {
       setCurrentPartial('');
       setInterviewerText('');
       setCandidateText('');
-      setIncrementalRaw('');
       setFollowUpRaw('');
+      setEvaluationRaw(data.evaluation_raw || '');
+      setIsEvaluating(false);
 
       return data.notes || '';
     } catch (e) {
       console.error('Failed to load interview:', e);
       return undefined;
     }
+  }, []);
+
+  // 添加题库分组
+  const addBankGroup = useCallback((group: BankQuestionGroup) => {
+    setBankQuestionGroups((prev) => {
+      // 检查是否已存在该题库
+      const existingIndex = prev.findIndex(g => g.bankId === group.bankId);
+      if (existingIndex >= 0) {
+        // 合并题目（去重）
+        const existing = prev[existingIndex];
+        const existingIds = new Set(existing.questions.map((q: Question) => q.id));
+        const newQuestions = group.questions.filter((q: Question) => !existingIds.has(q.id));
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...existing,
+          questions: [...existing.questions, ...newQuestions],
+        };
+        return updated;
+      }
+      return [...prev, group];
+    });
+  }, []);
+
+  // 移除题库分组
+  const removeBankGroup = useCallback((bankId: string) => {
+    setBankQuestionGroups((prev) => prev.filter(g => g.bankId !== bankId));
+  }, []);
+
+  // 清除所有题库
+  const clearBankGroups = useCallback(() => {
+    setBankQuestionGroups([]);
   }, []);
 
   return {
@@ -268,8 +306,12 @@ export function useInterview() {
     fetchInterviewList,
     loadInterview,
     setWsSend,
-    incrementalRaw,
     followUpRaw,
-    setFollowUpRaw,
+    evaluationRaw,
+    isEvaluating,
+    bankQuestionGroups,
+    addBankGroup,
+    removeBankGroup,
+    clearBankGroups,
   };
 }

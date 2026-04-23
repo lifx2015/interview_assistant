@@ -8,33 +8,36 @@ interface Props {
 }
 
 export const AnalysisPanel: React.FC<Props> = ({
-  analysisRaw, incrementalRaw, isAnalyzing,
+  analysisRaw, isAnalyzing,
 }) => {
-  const hasIncremental = incrementalRaw.length > 0;
-  const hasFinal = analysisRaw.length > 0 && !hasIncremental;
+  const hasContent = analysisRaw.length > 0;
   const isStreaming = isAnalyzing && !analysisRaw;
-
-  const displayText = hasIncremental ? incrementalRaw : hasFinal ? analysisRaw : '';
 
   return (
     <div className="analysis-panel">
       <div className="analysis-header">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
-          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
         </svg>
-        <span>{hasFinal ? '深度分析' : '实时分析'}</span>
-        {(hasIncremental || isStreaming) && <span className="live-badge"><span className="live-dot-sm" />实时</span>}
+        <span>面试评估</span>
+        {isStreaming && <span className="live-badge"><span className="live-dot-sm" />生成中</span>}
       </div>
 
       <div className="analysis-body">
-        {displayText ? (
-          <MarkdownRenderer content={displayText} isStreaming={hasIncremental || isStreaming} />
+        {hasContent ? (
+          <MarkdownRenderer content={analysisRaw} isStreaming={isStreaming} />
         ) : (
           <div className="analysis-empty">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
-              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
             </svg>
-            <p>候选人回答时将实时生成分析</p>
+            <p>面试结束后将自动生成评估报告</p>
           </div>
         )}
       </div>

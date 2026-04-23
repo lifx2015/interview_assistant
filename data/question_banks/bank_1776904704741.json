@@ -1,0 +1,129 @@
+{
+  "id": "bank_1776904704741",
+  "name": "模型训练-SFT",
+  "description": "",
+  "questions": [
+    {
+      "id": "q_1776905143924_0",
+      "content": "什么是SFT？它与预训练（Pre-training）和RLHF（基于人类反馈的强化学习）在训练目标和数据形式上有什么本质区别？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_1",
+      "content": "SFT过程中，模型具体在学习什么？为什么通常只更新模型参数而不改变模型架构？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_2",
+      "content": "请解释SFT中常用的“指令-回答”数据对（Prompt-Response Pair）。除了问答形式，还有哪些常见的SFT数据格式？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_3",
+      "content": "SFT能否向模型注入新的知识（比如2026年的新闻事件）？如果能，效果如何？如果不能，原因是什么？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_4",
+      "content": "SFT通常需要多少数据量？几百条、几万条和几十万条数据分别适用于什么场景？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_5",
+      "content": "如何构造高质量的SFT数据集？请描述从原始数据清洗到最终训练格式的流程。",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_6",
+      "content": "数据配比（Data Mixture）对SFT效果影响巨大。如果需要微调一个数学推理模型，纯CoT数据和纯问答数据该如何配比？为什么？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_7",
+      "content": "什么是SFT中的“System Prompt”？在训练数据中如果不包含System Prompt，推理时强行添加会有什么后果？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_8",
+      "content": "如何处理SFT训练数据中的多轮对话？在计算Loss时，为什么通常只计算模型回复部分，而屏蔽（Mask）用户输入部分？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_9",
+      "content": "发现微调后的模型出现了严重的“复读机”现象（重复生成相同词语）。可能的数据层面原因是什么？如何通过构造数据来缓解？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_10",
+      "content": "什么是LoRA（Low-Rank Adaptation）？为什么SFT中95%的情况都推荐使用LoRA而不是全参数微调（Full Fine-Tuning）？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_11",
+      "content": "SFT训练中的超参数设置（Learning Rate, Epoch）有什么特殊讲究？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_12",
+      "content": "什么是NEFTune（Noisy Embedding Fine-Tuning）？它为什么能提升SFT后的对话质量？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_13",
+      "content": "训练集Loss降得很低，但在测试集上表现很差（过拟合）。在SFT场景下，这具体意味着模型表现出了什么症状？如何解决？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_14",
+      "content": "使用DeepSpeed ZeRO-3进行SFT训练时，发现训练速度极慢。可能的原因是什么？如何优化？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_15",
+      "content": "除了看Loss曲线，SFT模型的好坏如何客观评估？请列举至少三种不同维度的评测方法。",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_16",
+      "content": "如何判断一个业务场景是否适合做SFT，还是说直接使用Prompt工程（Few-shot Prompting）就够了？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_17",
+      "content": "SFT后的模型出现了“幻觉”加剧（胡编乱造）。为什么SFT反而可能导致幻觉增加？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_18",
+      "content": "现在你有一个GPT-4生成的SFT数据集，用LLaMA微调后，发现模型能力依然远不如GPT-4。这种“能力蒸馏”的天花板在哪里？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776905143924_19",
+      "content": "部署SFT模型时，如何利用vLLM显著提升推理吞吐量？其核心原理是什么？",
+      "category": "",
+      "difficulty": "medium"
+    }
+  ],
+  "created_at": "2026-04-23 08:38:24",
+  "updated_at": "2026-04-23 08:45:43"
+}

@@ -1,0 +1,129 @@
+{
+  "id": "bank_1776903288660",
+  "name": "强化学习",
+  "description": "",
+  "questions": [
+    {
+      "id": "q_1776903292144_0",
+      "content": "强化学习与监督学习、无监督学习的核心区别是什么？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_1",
+      "content": "解释马尔可夫决策过程（MDP）的五个要素及其作用。",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_2",
+      "content": "什么是值函数（Value Function）和动作值函数（Q Function）？它们之间有什么关系？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_3",
+      "content": "Q-Learning 算法的更新规则是什么？它是 on-policy 还是 off-policy？为什么？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_4",
+      "content": "SARSA 和 Q-Learning 的关键区别是什么？各自的优缺点是什么？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_5",
+      "content": "策略梯度方法（Policy Gradient）的基本思想是什么？写出 REINFORCE 算法的梯度估计公式。",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_6",
+      "content": "Actor-Critic 方法相比纯策略梯度方法有什么改进？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_7",
+      "content": "DQN 的核心创新点有哪些？分别解决了什么问题？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_8",
+      "content": "解释 Double DQN 解决了什么问题，以及如何解决的。",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_9",
+      "content": "PPO（Proximal Policy Optimization）的核心思想是什么？为什么它成为目前最常用的强化学习算法之一？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_10",
+      "content": "SAC（Soft Actor-Critic）中的\"Soft\"体现在哪里？它带来了什么好处？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_11",
+      "content": "强化学习中有哪些常见的探索策略？各自的适用场景是什么？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_12",
+      "content": "什么是探索-利用困境（Exploration-Exploitation Dilemma）？在实际中如何平衡？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_13",
+      "content": "什么是奖励塑造（Reward Shaping）？潜在奖励塑造（Potential-Based Reward Shaping）为什么能保证最优策略不变？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_14",
+      "content": "强化学习中稀疏奖励问题是什么？有哪些常见的解决方法？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776903292145_15",
+      "content": "什么是模型预测控制（MPC）？它与无模型强化学习相比有什么优劣？",
+      "category": "",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q_1776903292145_16",
+      "content": "解释离线强化学习（Offline RL）与在线强化学习的区别，以及离线强化学习面临的核心挑战。",
+      "category": "",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q_1776903292145_17",
+      "content": "多智能体强化学习（MARL）中的主要挑战有哪些？常见的范式有哪些？",
+      "category": "",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q_1776903292145_18",
+      "content": "RLHF（Reinforcement Learning from Human Feedback）的流程是什么？PPO 在其中扮演什么角色？",
+      "category": "",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q_1776903292145_19",
+      "content": "强化学习在实际落地中面临哪些主要挑战？请结合具体场景说明。",
+      "category": "",
+      "difficulty": "hard"
+    }
+  ],
+  "created_at": "2026-04-23 08:14:48",
+  "updated_at": "2026-04-23 08:14:52"
+}

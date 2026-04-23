@@ -18,7 +18,7 @@ interface ProviderInfo {
 
 // 固定角色和会话
 const FIXED_ROLE = 'interviewer';
-const FIXED_SESSION = 'global';
+const FIXED_SESSION = 'global_interviewers';
 
 export const VoiceprintManagementPage: React.FC = () => {
   const [voiceprints, setVoiceprints] = useState<Voiceprint[]>([]);

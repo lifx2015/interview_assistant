@@ -5,6 +5,7 @@ interface Props {
   status: InterviewStatus;
   currentRole: SpeakerRole;
   isAnalyzing: boolean;
+  disabled?: boolean;
   onSwitchRole: (role: SpeakerRole) => void;
   onStart: () => void;
   onPause: () => void;
@@ -17,6 +18,7 @@ export const ControlBar: React.FC<Props> = ({
   status,
   currentRole,
   isAnalyzing,
+  disabled = false,
   onSwitchRole,
   onStart,
   onPause,
@@ -51,9 +53,9 @@ export const ControlBar: React.FC<Props> = ({
       {/* Action buttons */}
       <div className="action-buttons">
         {status === 'idle' && (
-          <button className="btn btn-start" onClick={onStart}>
+          <button className="btn btn-start" onClick={onStart} disabled={disabled}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" /></svg>
-            开始录音
+            {disabled ? '请先上传简历' : '开始录音'}
           </button>
         )}
         {status === 'recording' && (

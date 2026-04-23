@@ -156,13 +156,43 @@ async def analyze_answer_stream(
     answer: str,
     conversation_history: list[dict] | None = None,
 ):
-    history_text = _compress_history(conversation_history or [], keep_rounds=3, exclude_last=True)
+    """Per-answer STAR analysis (kept for backward compat, now uses qa_history format)."""
+    # Build a qa_history-style list from the current round + history
+    qa_list = list(conversation_history or [])
+    qa_list.append({"question": question, "answer": answer})
+
+    qa_text = ""
+    for i, qa in enumerate(qa_list, 1):
+        qa_text += f"第{i}轮 - 面试官: {qa.get('question', '')}\n"
+        qa_text += f"第{i}轮 - 候选人: {qa.get('answer', '')}\n\n"
 
     prompt = STAR_ANALYSIS_PROMPT.format(
         resume_context=resume_context[:2000],
-        question=question,
-        answer=answer,
-        conversation_history=history_text,
+        qa_history=qa_text,
+    )
+    loop = asyncio.get_running_loop()
+    gen = _stream_llm(prompt)
+    while True:
+        try:
+            chunk = await loop.run_in_executor(None, next, gen)
+            yield chunk
+        except StopIteration:
+            break
+
+
+async def interview_evaluation_stream(
+    resume_context: str,
+    qa_history: list[dict],
+):
+    """Generate overall interview evaluation after the interview ends."""
+    qa_text = ""
+    for i, qa in enumerate(qa_history, 1):
+        qa_text += f"第{i}轮 - 面试官: {qa.get('question', '')}\n"
+        qa_text += f"第{i}轮 - 候选人: {qa.get('answer', '')}\n\n"
+
+    prompt = STAR_ANALYSIS_PROMPT.format(
+        resume_context=resume_context[:2000],
+        qa_history=qa_text,
     )
     loop = asyncio.get_running_loop()
     gen = _stream_llm(prompt)

@@ -12,7 +12,6 @@ function App() {
   const interview = useInterview();
   const audioStartedRef = useRef(false);
   const [noteContent, setNoteContent] = useState('');
-  const [voiceprintEnabled, setVoiceprintEnabled] = useState(false);
 
   const handleWSMessage = useCallback((data: any) => {
     if (data.type === 'error') {
@@ -82,12 +81,6 @@ function App() {
     ws.send({ type: 'control', action: 'switch_role', role });
   }, [interview.switchRole, ws.send]);
 
-  const handleToggleVoiceprint = useCallback(() => {
-    const newEnabled = !voiceprintEnabled;
-    setVoiceprintEnabled(newEnabled);
-    ws.send({ type: 'control', action: newEnabled ? 'enable_voiceprint' : 'disable_voiceprint' });
-  }, [voiceprintEnabled, ws.send]);
-
   const handleSave = useCallback(() => {
     interview.saveInterview(noteContent);
   }, [interview.saveInterview, noteContent]);
@@ -111,8 +104,9 @@ function App() {
       isAnalyzing={interview.isAnalyzing}
       isGeneratingQuestions={interview.isGeneratingQuestions}
       questionsRaw={interview.questionsRaw}
-      incrementalRaw={interview.incrementalRaw}
       followUpRaw={interview.followUpRaw}
+      evaluationRaw={interview.evaluationRaw}
+      isEvaluating={interview.isEvaluating}
       noteContent={noteContent}
       onNoteChange={setNoteContent}
       onUploadSuccess={interview.onUploadSuccess}
@@ -128,8 +122,10 @@ function App() {
       savedInterviews={interview.savedInterviews}
       onLoadInterview={handleLoadInterview}
       onFetchList={interview.fetchInterviewList}
-      voiceprintEnabled={voiceprintEnabled}
-      onToggleVoiceprint={handleToggleVoiceprint}
+      bankQuestionGroups={interview.bankQuestionGroups}
+      onAddBankGroup={interview.addBankGroup}
+      onRemoveBankGroup={interview.removeBankGroup}
+      onClearBankGroups={interview.clearBankGroups}
     />
   );
 }

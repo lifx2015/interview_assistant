@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem } from '../types';
+import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem, Question, BankQuestionGroup } from '../types';
 import { ResumeUploader } from './ResumeUploader';
 import { CandidatePanel } from './CandidatePanel';
 import { PDFViewer } from './PDFViewer';
@@ -9,7 +9,6 @@ import { ControlBar } from './ControlBar';
 import { QuestionPanel } from './QuestionPanel';
 import { AnalysisPanel } from './AnalysisPanel';
 import { InterviewListPanel } from './InterviewListPanel';
-import { VoiceprintPanel } from './VoiceprintPanel';
 import { Link } from 'react-router-dom';
 
 interface Props {
@@ -23,8 +22,9 @@ interface Props {
   isAnalyzing: boolean;
   isGeneratingQuestions: boolean;
   questionsRaw: string;
-  incrementalRaw: string;
   followUpRaw: string;
+  evaluationRaw: string;
+  isEvaluating: boolean;
   noteContent: string;
   onNoteChange: (v: string) => void;
   onUploadSuccess: (sessionId: string, candidate: CandidateInfo) => void;
@@ -40,28 +40,34 @@ interface Props {
   savedInterviews: InterviewListItem[];
   onLoadInterview: (sessionId: string) => void;
   onFetchList: () => void;
-  voiceprintEnabled?: boolean;
-  onToggleVoiceprint?: () => void;
+  // 题库相关
+  bankQuestionGroups: BankQuestionGroup[];
+  onAddBankGroup: (group: BankQuestionGroup) => void;
+  onRemoveBankGroup: (bankId: string) => void;
+  onClearBankGroups: () => void;
 }
 
 export const MainLayout: React.FC<Props> = ({
   candidate, sessionId, status, currentRole,
   transcript, currentPartial, analysisRaw, isAnalyzing,
-  isGeneratingQuestions, questionsRaw, incrementalRaw, followUpRaw,
+  isGeneratingQuestions, questionsRaw, followUpRaw,
+  evaluationRaw, isEvaluating,
   noteContent, onNoteChange,
   onUploadSuccess, onSwitchRole, onStart, onPause, onResume,
   onStop, onSubmitAnswer, onGenerateQuestions,
   onSave, isSaving, savedInterviews, onLoadInterview, onFetchList,
-  voiceprintEnabled, onToggleVoiceprint,
+  bankQuestionGroups, onAddBankGroup, onRemoveBankGroup, onClearBankGroups,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
   const [rightWidth, setRightWidth] = useState(400);
   const [noteHeight, setNoteHeight] = useState(200);
   const [isDragging, setIsDragging] = useState(false);
   const [listOpen, setListOpen] = useState(false);
+  const [rightTab, setRightTab] = useState<'analysis' | 'transcript'>('transcript');
   const containerRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<'left' | 'right' | 'note' | null>(null);
+  const dragOffset = useRef(0);
 
   const startDrag = useCallback((side: 'left' | 'right' | 'note') => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -70,17 +76,23 @@ export const MainLayout: React.FC<Props> = ({
     document.body.style.cursor = side === 'note' ? 'row-resize' : 'col-resize';
     document.body.style.userSelect = 'none';
 
+    if (side === 'note') {
+      dragOffset.current = noteHeight + e.clientY;
+    } else if (side === 'left') {
+      dragOffset.current = e.clientX - leftWidth;
+    } else if (side === 'right') {
+      dragOffset.current = e.clientX + rightWidth;
+    }
+
     const onMouseMove = (ev: MouseEvent) => {
-      if (dragging.current === 'left' && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setLeftWidth(Math.max(240, Math.min(600, ev.clientX - rect.left)));
-      } else if (dragging.current === 'right' && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setRightWidth(Math.max(280, Math.min(700, rect.right - ev.clientX)));
+      if (dragging.current === 'left') {
+        setLeftWidth(Math.max(240, Math.min(600, ev.clientX - dragOffset.current)));
+      } else if (dragging.current === 'right') {
+        setRightWidth(Math.max(280, Math.min(700, dragOffset.current - ev.clientX)));
       } else if (dragging.current === 'note' && centerRef.current) {
         const rect = centerRef.current.getBoundingClientRect();
-        const fromBottom = rect.bottom - ev.clientY;
-        setNoteHeight(Math.max(120, Math.min(rect.height - 200, fromBottom)));
+        const newHeight = Math.max(120, Math.min(rect.height - 200, dragOffset.current - ev.clientY));
+        setNoteHeight(newHeight);
       }
     };
 
@@ -95,7 +107,7 @@ export const MainLayout: React.FC<Props> = ({
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, []);
+  }, [noteHeight, leftWidth, rightWidth]);
 
   return (
     <div className="main-layout">
@@ -126,6 +138,13 @@ export const MainLayout: React.FC<Props> = ({
                 <line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
               </svg>
             </button>
+          <Link to="/question-bank" className="btn btn-question-bank">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            </svg>
+            题库管理
+          </Link>
           <Link to="/voiceprint" className="btn btn-voiceprint">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
@@ -184,14 +203,6 @@ export const MainLayout: React.FC<Props> = ({
           <div className="center-note glow-card" style={{ height: noteHeight, minHeight: 120 }}>
             <NotePanel value={noteContent} onChange={onNoteChange} />
           </div>
-
-          {/* Transcript + Controls */}
-          <div className="center-bottom glow-card">
-            <TranscriptPanel status={status} transcript={transcript} currentPartial={currentPartial} currentRole={currentRole} />
-            <ControlBar status={status} currentRole={currentRole} isAnalyzing={isAnalyzing}
-              onSwitchRole={onSwitchRole} onStart={onStart} onPause={onPause} onResume={onResume}
-              onStop={onStop} onSubmitAnswer={onSubmitAnswer} />
-          </div>
         </main>
 
         <div className="resize-handle" onMouseDown={startDrag('right')} />
@@ -204,29 +215,50 @@ export const MainLayout: React.FC<Props> = ({
             onClose={() => setListOpen(false)}
             onLoad={onLoadInterview}
           />
-          {sessionId && (
-            <div className="voiceprint-section">
-              <VoiceprintPanel
-                sessionId={sessionId}
-                onVoiceprintRegistered={(vps) => {
-                  // 当注册了两个声纹后，可以自动启用声纹识别
-                  if (vps.length >= 2 && !voiceprintEnabled && onToggleVoiceprint) {
-                    onToggleVoiceprint();
-                  }
-                }}
-              />
-            </div>
-          )}
           <div className="right-top glow-card">
-            <QuestionPanel isGenerating={isGeneratingQuestions}
+            <QuestionPanel
+              isGenerating={isGeneratingQuestions}
               questionsRaw={questionsRaw}
               followUpRaw={followUpRaw}
-              onGenerate={onGenerateQuestions} />
+              onGenerate={onGenerateQuestions}
+              bankQuestionGroups={bankQuestionGroups}
+              onAddBankGroup={onAddBankGroup}
+              onRemoveBankGroup={onRemoveBankGroup}
+            />
           </div>
           <div className="right-bottom glow-card">
-            <AnalysisPanel analysisRaw={analysisRaw}
-              incrementalRaw={incrementalRaw}
-              isAnalyzing={isAnalyzing} />
+            <div className="right-bottom-tabs">
+              <button className={`right-tab ${rightTab === 'transcript' ? 'active' : ''}`} onClick={() => setRightTab('transcript')}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                </svg>
+                录音记录
+                {transcript.length > 0 && <span className="tab-count-badge">{transcript.length}</span>}
+              </button>
+              <button className={`right-tab ${rightTab === 'analysis' ? 'active' : ''}`} onClick={() => setRightTab('analysis')}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
+                面试评估
+                {evaluationRaw && !isEvaluating && <span className="tab-dot" />}
+              </button>
+            </div>
+            <div className="right-bottom-content">
+              {rightTab === 'transcript' ? (
+                <div className="transcript-tab-content">
+                  <TranscriptPanel status={status} transcript={transcript} currentPartial={currentPartial} currentRole={currentRole} />
+                  <ControlBar status={status} currentRole={currentRole} isAnalyzing={isAnalyzing}
+                    onSwitchRole={onSwitchRole} onStart={onStart} onPause={onPause} onResume={onResume}
+                    onStop={onStop} onSubmitAnswer={onSubmitAnswer} disabled={!sessionId} />
+                </div>
+              ) : (
+                <AnalysisPanel analysisRaw={evaluationRaw} incrementalRaw="" isAnalyzing={isEvaluating} />
+              )}
+            </div>
           </div>
         </aside>
       </div>
@@ -266,6 +298,15 @@ export const MainLayout: React.FC<Props> = ({
         }
         .btn-voiceprint:hover { border-color: var(--accent-cyan); box-shadow: 0 0 12px rgba(0,212,255,0.15); }
 
+        .btn-question-bank {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 5px 12px; border: 1px solid rgba(139,92,246,0.3); border-radius: 6px;
+          background: rgba(139,92,246,0.06); color: #a78bfa;
+          font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+          text-decoration: none;
+        }
+        .btn-question-bank:hover { border-color: #a78bfa; box-shadow: 0 0 12px rgba(139,92,246,0.15); }
+
         .btn-list {
           display: inline-flex; align-items: center; justify-content: center;
           padding: 5px 8px; border: 1px solid var(--border-color); border-radius: 6px;
@@ -300,17 +341,25 @@ export const MainLayout: React.FC<Props> = ({
 
         .center-note { flex-shrink: 0; overflow: hidden; border-top: none; border-bottom: none; }
 
-        .center-bottom { height: 180px; min-height: 140px; display: flex; flex-direction: column; border-top: 1px solid var(--border-color); flex-shrink: 0; }
-
         .col-right { display: flex; flex-direction: column; flex-shrink: 0; }
-        .voiceprint-section {
-          background: var(--bg-secondary);
-          border-bottom: 1px solid var(--border-color);
-          max-height: 250px;
-          overflow-y: auto;
-        }
         .right-top { flex: 1; background: var(--bg-secondary); overflow: hidden; }
-        .right-bottom { flex: 1; background: var(--bg-secondary); overflow: hidden; }
+        .right-bottom { flex: 1; background: var(--bg-secondary); overflow: hidden; display: flex; flex-direction: column; }
+        .right-bottom-tabs { display: flex; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+        .right-tab {
+          flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+          padding: 8px 12px; border: none; background: transparent;
+          color: var(--text-muted); font-size: 12px; font-weight: 500; cursor: pointer;
+          transition: all 0.2s; border-bottom: 2px solid transparent;
+        }
+        .right-tab:hover { color: var(--text-primary); background: rgba(255,255,255,0.03); }
+        .right-tab.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); background: rgba(0,212,255,0.05); }
+        .tab-count-badge {
+          padding: 0 5px; min-width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
+          background: rgba(0,212,255,0.15); border-radius: 8px; font-size: 10px; font-weight: 600; color: var(--accent-cyan);
+        }
+        .tab-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); }
+        .right-bottom-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+        .transcript-tab-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
       `}</style>
     </div>
   );

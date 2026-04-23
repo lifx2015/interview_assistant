@@ -12,6 +12,7 @@ from backend.services.voiceprint_service import voiceprint_service
 from backend.services.llm_service import (
     analyze_answer_stream,
     incremental_analyze_stream,
+    interview_evaluation_stream,
 )
 
 router = APIRouter()
@@ -93,7 +94,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             return
 
         # 检查是否有全局面试官声纹
-        voiceprints = voiceprint_service.get_global_voiceprints()
+        voiceprints = await voiceprint_service.get_global_voiceprints()
         if not voiceprints:
             return  # 没有录入面试官声纹，无法识别
 
@@ -138,8 +139,6 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         resume_ctx = session.get("resume_text", "")
 
         try:
-            buffer = ""
-            in_followup_section = False
             async for chunk in incremental_analyze_stream(
                 resume_context=resume_ctx,
                 current_sentence=sentence,
@@ -147,46 +146,11 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                 current_question=current_question,
                 conversation_history=conversation_history,
             ):
-                buffer += chunk
+                await websocket.send_json({
+                    "type": "follow_up_stream",
+                    "data": chunk,
+                })
 
-                # Check if we've reached the followup section
-                if "---FOLLOWUP---" in buffer:
-                    if not in_followup_section:
-                        # First time seeing the separator
-                        in_followup_section = True
-                        parts = buffer.split("---FOLLOWUP---", 1)
-                        analysis_part = parts[0]
-                        followup_part = parts[1] if len(parts) > 1 else ""
-
-                        # Send remaining analysis content
-                        if analysis_part:
-                            await websocket.send_json({
-                                "type": "incremental_analysis_stream",
-                                "data": analysis_part,
-                            })
-
-                        # Send followup content
-                        if followup_part:
-                            await websocket.send_json({
-                                "type": "follow_up_stream",
-                                "data": followup_part,
-                            })
-                    else:
-                        # Already in followup section, send all to follow_up_stream
-                        await websocket.send_json({
-                            "type": "follow_up_stream",
-                            "data": chunk,
-                        })
-                else:
-                    # Still in analysis section
-                    await websocket.send_json({
-                        "type": "incremental_analysis_stream",
-                        "data": chunk,
-                    })
-
-            await websocket.send_json({
-                "type": "incremental_analysis_complete",
-            })
             await websocket.send_json({
                 "type": "follow_up_complete",
             })
@@ -286,39 +250,24 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                         interviewer_text.clear()
                         current_question = ""
 
-                        resume_ctx = session.get("resume_text", "")
-
-                        # Add to conversation history BEFORE final analysis
-                        # so the analysis can see the current round in context
+                        # Add to conversation history
                         conversation_history.append({
                             "question": full_question,
                             "answer": full_answer,
                         })
 
-                        # Send clear signal to frontend to reset incremental state
+                        # Send clear signal to frontend to reset follow-up state
                         await websocket.send_json({
-                            "type": "incremental_analysis_clear",
+                            "type": "follow_up_clear",
                         })
 
-                        # Stream final comprehensive LLM analysis
-                        async for chunk in analyze_answer_stream(
-                            resume_context=resume_ctx,
-                            question=full_question,
-                            answer=full_answer,
-                            conversation_history=conversation_history,
-                        ):
-                            await websocket.send_json({
-                                "type": "analysis_stream",
-                                "data": chunk,
-                            })
-
-                        await websocket.send_json({
-                            "type": "analysis_complete",
+                        session["qa_history"].append({
                             "question": full_question,
                             "answer": full_answer,
                         })
 
-                        session["qa_history"].append({
+                        await websocket.send_json({
+                            "type": "answer_complete_ack",
                             "question": full_question,
                             "answer": full_answer,
                         })
@@ -334,6 +283,33 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                             asr_started = True
 
                     elif action == "stop":
+                        # Generate interview evaluation before closing
+                        if asr_started:
+                            asr.stop()
+                            asr_started = False
+
+                        _incremental_in_flight.pop(session_id, None)
+                        _incremental_pending.pop(session_id, None)
+
+                        resume_ctx = session.get("resume_text", "")
+                        qa = session.get("qa_history", [])
+
+                        if qa:
+                            await websocket.send_json({
+                                "type": "evaluation_start",
+                            })
+                            async for chunk in interview_evaluation_stream(
+                                resume_context=resume_ctx,
+                                qa_history=qa,
+                            ):
+                                await websocket.send_json({
+                                    "type": "evaluation_stream",
+                                    "data": chunk,
+                                })
+                            await websocket.send_json({
+                                "type": "evaluation_complete",
+                            })
+
                         break
 
     except WebSocketDisconnect:

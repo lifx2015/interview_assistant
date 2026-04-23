@@ -1,0 +1,81 @@
+{
+  "id": "bank_1776914324726",
+  "name": "驾驭工程",
+  "description": "",
+  "questions": [
+    {
+      "id": "q_1776914381376_0",
+      "content": "什么是 Harness Engineering？与 Prompt Engineering、Context Engineering 的本质区别？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_1",
+      "content": "“马具”类比的解释：如何理解“驾驭”与“约束”？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_2",
+      "content": "Harness 层如何解决“幻觉”与“遗忘长链路目标”？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_3",
+      "content": "为什么将 `Read` 和 `Write/Edit` 拆分为两个工具？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_4",
+      "content": "权限链拦截 `rm -rf` 的完整链路设计是怎样的？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_5",
+      "content": "Multi-Agent 协作中如何复用父 Agent 的 Prompt Cache？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_6",
+      "content": "如何理解“模型权重之外的一切都属于 Harness”？三大核心组件是什么？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_7",
+      "content": "长链路任务中如何通过 AutoCompact 策略解决“失忆”问题？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_8",
+      "content": "`CLAUDE.md` 的角色是什么？为什么全量结构记忆反而有害？“宜精不宜多”的原因是什么？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_9",
+      "content": "错误循环（10次反复修改）的介入策略有哪些层级？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_10",
+      "content": "什么是“推理强度的三明治策略”（xhigh-high-xhigh）？它的结构拆解和效果是什么？",
+      "category": "",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q_1776914381376_11",
+      "content": "如何构建从“失败轨迹收集”到“优化护栏规则”的数据飞轮？",
+      "category": "",
+      "difficulty": "medium"
+    }
+  ],
+  "created_at": "2026-04-23 11:18:44",
+  "updated_at": "2026-04-23 11:19:41"
+}

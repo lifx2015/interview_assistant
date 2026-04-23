@@ -7,5 +7,32 @@
     "audio_file": "data\\voiceprints\\interviewer_001.pcm",
     "provider": "simple",
     "sample_duration": 6.0025
+  },
+  "interviewer_1776930117338": {
+    "voice_id": "interviewer_1776930117338",
+    "role": "interviewer",
+    "name": "测试",
+    "session_id": "global",
+    "audio_file": "data\\voiceprints\\interviewer_1776930117338.wav",
+    "provider": "speechbrain",
+    "sample_duration": 4.43625
+  },
+  "interviewer_1776930133721": {
+    "voice_id": "interviewer_1776930133721",
+    "role": "interviewer",
+    "name": "测试",
+    "session_id": "global",
+    "audio_file": "data\\voiceprints\\interviewer_1776930133721.wav",
+    "provider": "speechbrain",
+    "sample_duration": 4.606875
+  },
+  "interviewer_1776930844763": {
+    "voice_id": "interviewer_1776930844763",
+    "role": "interviewer",
+    "name": "测试",
+    "session_id": "global",
+    "audio_file": "data\\voiceprints\\interviewer_1776930844763.wav",
+    "provider": "speechbrain",
+    "sample_duration": 5.0334375
   }
 }

@@ -42,3 +42,17 @@ export interface InterviewListItem {
   candidate_name: string;
   created_at: string;
 }
+
+export interface Question {
+  id: string;
+  content: string;
+  category?: string;
+  difficulty?: 'easy' | 'medium' | 'hard';
+}
+
+// 按题库分组的题目（用于面试页面）
+export interface BankQuestionGroup {
+  bankId: string;
+  bankName: string;
+  questions: Question[];
+}
