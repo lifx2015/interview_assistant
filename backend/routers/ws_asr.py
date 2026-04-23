@@ -187,10 +187,11 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                         current_question = "".join(interviewer_text)
                     else:
                         candidate_text.append(item["text"])
-                        # Trigger incremental analysis for each candidate sentence
-                        asyncio.create_task(
-                            run_incremental_analysis(item["text"])
-                        )
+                        # Only trigger incremental analysis for sentences >= 30 chars
+                        if len(item["text"]) >= 30:
+                            asyncio.create_task(
+                                run_incremental_analysis(item["text"])
+                            )
 
         forward_task = asyncio.create_task(forward_results())
 
