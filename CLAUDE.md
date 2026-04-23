@@ -38,7 +38,7 @@ ASR 结果 → useInterview.handleASRResult → 更新 transcript/followUpRaw/ev
 
 - 后端: Python type-annotated, async/await, Pydantic v2 models
 - 前端: React 函数组件 + Hooks, TypeScript strict mode
-- 样式: CSS-in-JS (内联 `<style>` 标签) + CSS 自定义属性，暗色主题
+- 样式: CSS Modules (`*.module.css`) + CSS 自定义属性，暗色主题
 - LLM 输出: Markdown 格式，流式渲染
 
 ## 注意事项

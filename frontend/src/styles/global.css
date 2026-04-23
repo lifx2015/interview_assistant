@@ -16,6 +16,9 @@
   --glass-blur: 12px;
   --radius: 12px;
   --radius-sm: 8px;
+  --accent-purple: #8b5cf6;
+  --bg-tertiary: #1a1f2a;
+  --bg-hover: #252b38;
 }
 
 * {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import styles from './AnalysisPanel.module.css';
 
 interface Props {
   analysisRaw: string;
@@ -14,8 +15,8 @@ export const AnalysisPanel: React.FC<Props> = ({
   const isStreaming = isAnalyzing && !analysisRaw;
 
   return (
-    <div className="analysis-panel">
-      <div className="analysis-header">
+    <div className={styles['analysis-panel']}>
+      <div className={styles['analysis-header']}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
           <polyline points="14 2 14 8 20 8" />
@@ -23,14 +24,14 @@ export const AnalysisPanel: React.FC<Props> = ({
           <line x1="16" y1="17" x2="8" y2="17" />
         </svg>
         <span>面试评估</span>
-        {isStreaming && <span className="live-badge"><span className="live-dot-sm" />生成中</span>}
+        {isStreaming && <span className={styles['live-badge']}><span className={styles['live-dot-sm']} />生成中</span>}
       </div>
 
-      <div className="analysis-body">
+      <div className={styles['analysis-body']}>
         {hasContent ? (
           <MarkdownRenderer content={analysisRaw} isStreaming={isStreaming} />
         ) : (
-          <div className="analysis-empty">
+          <div className={styles['analysis-empty']}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
@@ -41,34 +42,6 @@ export const AnalysisPanel: React.FC<Props> = ({
           </div>
         )}
       </div>
-
-      <style>{`
-        .analysis-panel { display: flex; flex-direction: column; height: 100%; }
-
-        .analysis-header {
-          display: flex; align-items: center; gap: 6px;
-          padding: 8px 12px; border-bottom: 1px solid var(--border-color);
-          font-size: 12px; font-weight: 600; color: var(--text-primary); flex-shrink: 0;
-        }
-        .live-badge {
-          display: inline-flex; align-items: center; gap: 4px;
-          font-size: 10px; color: var(--accent-cyan); margin-left: auto;
-          padding: 2px 6px; border-radius: 8px;
-          background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2);
-        }
-        .live-dot-sm {
-          width: 5px; height: 5px; border-radius: 50%; background: var(--accent-cyan);
-          animation: pulse-dot 1s ease-in-out infinite;
-        }
-
-        .analysis-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
-
-        .analysis-empty {
-          height: 100%; display: flex; flex-direction: column;
-          align-items: center; justify-content: center; gap: 8px;
-          color: var(--text-muted); font-size: 12px; text-align: center; padding: 20px;
-        }
-      `}</style>
     </div>
   );
 };

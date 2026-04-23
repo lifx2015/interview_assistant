@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import styles from './ResumeUploader.module.css';
 import type { CandidateInfo, ResumeUploadResponse } from '../types';
 
 interface Props {
@@ -44,7 +45,7 @@ export const ResumeUploader: React.FC<Props> = ({ onUploadSuccess }) => {
 
   return (
     <div
-      className={`resume-uploader ${isDragging ? 'dragging' : ''}`}
+      className={`${styles['resume-uploader']} ${isDragging ? styles.dragging : ''}`}
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
@@ -55,25 +56,11 @@ export const ResumeUploader: React.FC<Props> = ({ onUploadSuccess }) => {
         <line x1="12" y1="18" x2="12" y2="12" />
         <polyline points="9 15 12 12 15 15" />
       </svg>
-      <p className="upload-text">{isUploading ? '解析中...' : '拖拽简历至此或点击上传'}</p>
-      <p className="upload-hint">PDF / Word / 图片</p>
+      <p className={styles['upload-text']}>{isUploading ? '解析中...' : '拖拽简历至此或点击上传'}</p>
+      <p className={styles['upload-hint']}>PDF / Word / 图片</p>
       <input type="file" accept=".pdf,.docx,.doc,.png,.jpg,.jpeg" onChange={handleChange} style={{ display: 'none' }} id="resume-input" />
-      <label htmlFor="resume-input" className="btn btn-primary upload-btn">选择文件</label>
-      {error && <p className="upload-error">{error}</p>}
-
-      <style>{`
-        .resume-uploader {
-          display: flex; flex-direction: column; align-items: center; justify-content: center;
-          height: 100%; padding: 40px 24px; text-align: center;
-          border: 2px dashed var(--border-color); border-radius: var(--radius);
-          cursor: pointer; transition: all 0.3s;
-        }
-        .resume-uploader.dragging { border-color: var(--accent-cyan); background: rgba(0,212,255,0.05); }
-        .upload-text { font-size: 14px; color: var(--text-primary); margin: 16px 0 4px; }
-        .upload-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
-        .upload-btn { cursor: pointer; }
-        .upload-error { color: var(--accent-red); font-size: 12px; margin-top: 10px; }
-      `}</style>
+      <label htmlFor="resume-input" className={`btn btn-primary ${styles['upload-btn']}`}>选择文件</label>
+      {error && <p className={styles['upload-error']}>{error}</p>}
     </div>
   );
 };

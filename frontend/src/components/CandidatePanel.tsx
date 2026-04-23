@@ -1,119 +1,82 @@
 import React from 'react';
+import styles from './CandidatePanel.module.css';
 import type { CandidateInfo } from '../types';
 
 interface Props {
-  candidate: CandidateInfo;
+  candidate: CandidateInfo | null;
 }
 
 export const CandidatePanel: React.FC<Props> = ({ candidate }) => {
+  if (!candidate) return null;
+
+  const initials = candidate.name?.charAt(0) || '?';
+
   return (
-    <div className="candidate-panel">
-      {/* Header */}
-      <div className="candidate-header">
-        <div className="avatar">{candidate.name?.[0] || '?'}</div>
-        <div className="header-info">
-          <div className="name">{candidate.name || '未知'}</div>
-          <div className="contacts">
-            {candidate.phone && <span>{candidate.phone}</span>}
+    <div className={styles['candidate-panel']}>
+      <div className={styles['candidate-header']}>
+        <div className={styles.avatar}>{initials}</div>
+        <div className={styles['header-info']}>
+          <div className={styles.name}>{candidate.name || 'Unknown'}</div>
+          <div className={styles.contacts}>
             {candidate.email && <span>{candidate.email}</span>}
+            {candidate.phone && <span>{candidate.phone}</span>}
           </div>
         </div>
       </div>
 
-      {/* Summary */}
       {candidate.summary && (
-        <div className="section">
-          <div className="section-title">核心特点</div>
-          <div className="summary-text">{candidate.summary}</div>
+        <div className={styles.section}>
+          <div className={styles['section-title']}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+            摘要
+          </div>
+          <div className={styles['summary-text']}>{candidate.summary}</div>
         </div>
       )}
 
-      {/* Skills */}
-      {candidate.skills.length > 0 && (
-        <div className="section">
-          <div className="section-title">技能标签</div>
-          <div className="skill-tags">
-            {candidate.skills.map((s, i) => <span key={i} className="skill-tag">{s}</span>)}
+      {candidate.skills?.length > 0 && (
+        <div className={styles.section}>
+          <div className={styles['section-title']}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>
+            技能
+          </div>
+          <div className={styles['skill-tags']}>
+            {candidate.skills.map((s, i) => (
+              <span key={i} className={styles['skill-tag']}>{s}</span>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Education */}
-      {candidate.education.length > 0 && (
-        <div className="section">
-          <div className="section-title">教育背景</div>
-          {candidate.education.map((e, i) => (
-            <div key={i} className="list-item">
-              <div className="item-primary">{e.school}{e.degree ? ` - ${e.degree}` : ''}{e.major ? ` ${e.major}` : ''}</div>
-              {e.period && <div className="item-sub">{e.period}</div>}
+      {candidate.education?.length > 0 && (
+        <div className={styles.section}>
+          <div className={styles['section-title']}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z" /><path d="M6 12v5c3 3 9 3 12 0v-5" /></svg>
+            教育背景
+          </div>
+          {candidate.education.map((edu, i) => (
+            <div key={i} className={styles['list-item']}>
+              <div className={styles['item-primary']}>{edu.school}{edu.degree ? ` - ${edu.degree}` : ''}{edu.major ? ` ${edu.major}` : ''}</div>
+              {edu.period && <div className={styles['item-sub']}>{edu.period}</div>}
             </div>
           ))}
         </div>
       )}
 
-      {/* Risk Points */}
-      {candidate.risk_points.length > 0 && (
-        <div className="section">
-          <div className="section-title risk-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)" strokeWidth="2">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
+      {candidate.risk_points?.length > 0 && (
+        <div className={styles.section}>
+          <div className={`${styles['section-title']} ${styles['risk-title']}`}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
             风险点
           </div>
           {candidate.risk_points.map((r, i) => (
-            <div key={i} className="risk-item">
-              <span className="risk-dot" />
+            <div key={i} className={styles['risk-item']}>
+              <span className={styles['risk-dot']} />
               {r}
             </div>
           ))}
         </div>
       )}
-
-      <style>{`
-        .candidate-panel { padding: 16px; overflow-y: auto; height: 100%; }
-        .candidate-header {
-          display: flex; align-items: center; gap: 12px;
-          padding-bottom: 14px; margin-bottom: 14px;
-          border-bottom: 1px solid var(--border-color);
-        }
-        .avatar {
-          width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
-          background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
-          display: flex; align-items: center; justify-content: center;
-          font-size: 18px; font-weight: 700; color: white;
-        }
-        .header-info { min-width: 0; }
-        .name { font-size: 16px; font-weight: 600; }
-        .contacts { font-size: 11px; color: var(--text-muted); display: flex; gap: 10px; margin-top: 2px; flex-wrap: wrap; }
-        .section { margin-bottom: 14px; }
-        .section-title {
-          font-size: 11px; color: var(--accent-cyan); font-weight: 600;
-          text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;
-          display: flex; align-items: center; gap: 6px;
-        }
-        .risk-title { color: var(--accent-amber); }
-        .summary-text { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
-        .list-item {
-          font-size: 12px; color: var(--text-secondary); padding: 4px 0;
-          border-bottom: 1px solid rgba(255,255,255,0.03); line-height: 1.5;
-        }
-        .skill-tags { display: flex; flex-wrap: wrap; gap: 5px; }
-        .skill-tag {
-          padding: 2px 8px; border-radius: 16px; font-size: 11px;
-          background: rgba(0,212,255,0.08); color: var(--accent-cyan);
-          border: 1px solid rgba(0,212,255,0.15);
-        }
-        .risk-item {
-          display: flex; align-items: flex-start; gap: 8px;
-          font-size: 12px; color: var(--accent-amber); padding: 5px 0; line-height: 1.5;
-        }
-        .risk-dot {
-          width: 6px; height: 6px; border-radius: 50%; background: var(--accent-amber);
-          flex-shrink: 0; margin-top: 6px;
-        }
-      `}</style>
     </div>
   );
 };

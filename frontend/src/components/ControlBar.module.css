@@ -1,0 +1,85 @@
+.control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+
+.role-switcher {
+  display: flex;
+  gap: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.role-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.role-btn:hover {
+  color: var(--text-primary);
+}
+
+.role-btn.active {
+  background: rgba(0, 212, 255, 0.12);
+  color: var(--accent-cyan);
+}
+
+.role-btn.candidate.active {
+  background: rgba(0, 255, 136, 0.1);
+  color: var(--accent-green);
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stop-area {
+  display: flex;
+  align-items: center;
+}
+
+.analyzing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-cyan);
+  font-size: 13px;
+}
+
+.analyzing-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.analyzing-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.analyzing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.analyzing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}

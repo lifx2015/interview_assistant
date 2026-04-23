@@ -1,0 +1,161 @@
+.note-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.note-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.note-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.note-toolbar {
+  display: flex;
+  gap: 2px;
+  padding-right: 8px;
+  border-right: 1px solid var(--border-color);
+  margin-right: 2px;
+}
+
+.note-toolbar button {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.note-toolbar button:hover {
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--accent-cyan);
+}
+
+.mode-btn {
+  padding: 3px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mode-btn:hover {
+  border-color: var(--border-glow);
+}
+
+.mode-btn.active {
+  background: rgba(0, 212, 255, 0.1);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.note-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.note-editor {
+  flex: 1;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  line-height: 1.6;
+  resize: none;
+  tab-size: 2;
+}
+
+.note-editor::placeholder {
+  color: var(--text-muted);
+}
+
+.note-preview {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.note-preview h1 {
+  font-size: 16px;
+  color: var(--text-primary);
+  margin: 8px 0 4px;
+  font-weight: 700;
+}
+
+.note-preview h2 {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin: 6px 0 3px;
+  font-weight: 600;
+}
+
+.note-preview h3 {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin: 4px 0 2px;
+  font-weight: 600;
+}
+
+.note-preview strong {
+  color: var(--text-primary);
+}
+
+.note-preview em {
+  color: var(--accent-cyan);
+}
+
+.note-preview code {
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--accent-cyan);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.note-preview ul {
+  padding-left: 18px;
+  margin: 4px 0;
+}
+
+.note-preview li {
+  margin: 2px 0;
+}

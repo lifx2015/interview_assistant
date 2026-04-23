@@ -199,10 +199,8 @@ SQLite 单表 `interviews`，字段包括 session_id, candidate(JSON), qa_histor
 ### 架构层面
 
 1. **会话状态持久化**: 当前 `sessions.py` 使用内存 dict，服务重启后丢失。面试进行中的状态应同步写入数据库，或使用 Redis。
-2. **CSS 架构**: 所有组件用内联 `<style>` 标签，样式无法复用且难以维护。建议迁移到 CSS Modules 或 Tailwind CSS。
 
 ### 功能层面
-
 3. **面试评估触发时机**: 当前仅在 WebSocket `stop` 时触发，如果 WebSocket 异常断开则不会生成评估。建议增加 HTTP API 触发评估作为兜底。
 4. **增量分析去重**: 当前每个句子都触发一次 LLM 调用，短句（如"嗯"、"对"）也会触发，浪费 API 调用。建议增加最小长度或语义过滤。
 5. **音频采集**: 使用已废弃的 `ScriptProcessorNode`，建议迁移到 `AudioWorklet` 以获得更好的性能和更少的音频卡顿。
