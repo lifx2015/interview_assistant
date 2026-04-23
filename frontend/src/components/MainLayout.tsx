@@ -173,6 +173,9 @@ export const MainLayout: React.FC<Props> = ({
           {status === 'analyzing' && (
             <div className={`${styles['rec-badge']} ${styles.analyzing}`}><span className={styles['rec-dot']} />AI 分析中</div>
           )}
+          {status === 'evaluating' && (
+            <div className={`${styles['rec-badge']} ${styles.analyzing}`}><span className={styles['rec-dot']} />面试评估中</div>
+          )}
         </div>
       </header>
 

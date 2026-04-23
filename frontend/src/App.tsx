@@ -3,6 +3,7 @@ import { MainLayout } from './components/MainLayout';
 import { useInterview } from './hooks/useInterview';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useAudioCapture } from './hooks/useAudioCapture';
+import type { InterviewStatus } from './types';
 import './styles/global.css';
 import './styles/animations.css';
 import './styles/markdown.css';
@@ -11,6 +12,7 @@ function App() {
   const interview = useInterview();
   const audioStartedRef = useRef(false);
   const [noteContent, setNoteContent] = useState('');
+  const prevStatusRef = useRef<InterviewStatus>('idle');
 
   const handleWSMessage = useCallback((data: any) => {
     if (data.type === 'error') {
@@ -33,6 +35,15 @@ function App() {
   useEffect(() => {
     interview.setWsSend(ws.send);
   }, [ws.send, interview.setWsSend]);
+
+  // 监听面试评估完成，断开 WebSocket
+  useEffect(() => {
+    if (prevStatusRef.current === 'evaluating' && interview.status === 'idle') {
+      ws.disconnect();
+      audioStartedRef.current = false;
+    }
+    prevStatusRef.current = interview.status;
+  }, [interview.status, ws]);
 
   const handleAudioData = useCallback((pcmBuffer: ArrayBuffer) => {
     ws.sendBinary(pcmBuffer);
@@ -64,10 +75,8 @@ function App() {
   const handleStop = useCallback(() => {
     audio.stop();
     ws.send({ type: 'control', action: 'stop' });
-    ws.disconnect();
-    audioStartedRef.current = false;
     interview.stopInterview();
-  }, [audio.stop, ws.send, ws.disconnect, interview.stopInterview]);
+  }, [audio, ws, interview]);
 
   const handleSubmitAnswer = useCallback(() => {
     ws.send({ type: 'control', action: 'answer_complete' });

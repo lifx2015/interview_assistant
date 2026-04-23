@@ -35,7 +35,7 @@ export interface QARecord {
   answer: string;
 }
 
-export type InterviewStatus = 'idle' | 'recording' | 'paused' | 'analyzing';
+export type InterviewStatus = 'idle' | 'recording' | 'paused' | 'analyzing' | 'evaluating';
 
 export interface InterviewListItem {
   session_id: string;

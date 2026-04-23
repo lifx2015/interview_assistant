@@ -118,7 +118,7 @@ export function useInterview() {
   }, []);
 
   const stopInterview = useCallback(() => {
-    setStatus('idle');
+    setStatus('evaluating');
     setIsAnalyzing(false);
     setFollowUpRaw('');
   }, []);

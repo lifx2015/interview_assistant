@@ -63,11 +63,17 @@ export const ControlBar: React.FC<Props> = ({
             AI 分析中...
           </div>
         )}
+        {status === 'evaluating' && (
+          <div className={styles['analyzing-indicator']}>
+            <div className={styles['analyzing-dots']}><span /><span /><span /></div>
+            面试评估中...
+          </div>
+        )}
       </div>
 
       {/* Stop button */}
       <div className={styles['stop-area']}>
-        {status !== 'idle' && (
+        {(status === 'recording' || status === 'paused' || status === 'analyzing') && (
           <button className="btn btn-stop" onClick={onStop}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
             面试结束
