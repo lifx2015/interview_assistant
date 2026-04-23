@@ -66,6 +66,8 @@ export const MainLayout: React.FC<Props> = ({
   onStop, onSubmitAnswer, onGenerateQuestions,
   onSave, isSaving, savedInterviews, onLoadInterview, onFetchList,
   bankQuestionGroups, onAddBankGroup, onRemoveBankGroup,
+  wsStatus, wsError, audioError, appError,
+  onClearAppError, onClearWsError, onReconnect,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
   const [rightWidth, setRightWidth] = useState(400);
@@ -174,6 +176,16 @@ export const MainLayout: React.FC<Props> = ({
           )}
         </div>
       </header>
+
+      <StatusBar
+        wsStatus={wsStatus}
+        wsError={wsError}
+        audioError={audioError}
+        appError={appError}
+        onClearAppError={onClearAppError}
+        onClearWsError={onClearWsError}
+        onReconnect={onReconnect}
+      />
 
       {/* Three-column layout */}
       <div className={styles.columns} ref={containerRef}>

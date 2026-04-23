@@ -3,6 +3,7 @@ WebSocket ASR 路由 - 集成声纹识别
 """
 import asyncio
 import json
+import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -21,6 +22,8 @@ router = APIRouter()
 # Track in-flight incremental analysis per session to prevent overlapping calls
 _incremental_in_flight: dict[str, bool] = {}
 _incremental_pending: dict[str, str] = {}  # session_id -> latest pending sentence
+_incremental_start_time: dict[str, float] = {}  # session_id -> timestamp when in-flight started
+_INCREMENTAL_TIMEOUT = 30.0  # seconds before forcing release of stuck in-flight flag
 
 
 @router.websocket("/ws/asr/{session_id}")
@@ -119,12 +122,19 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             })
 
     async def run_incremental_analysis(sentence: str):
-        """Run incremental analysis for a candidate sentence. Handles debouncing."""
+        """Run incremental analysis for a candidate sentence. Handles debouncing with timeout."""
         if _incremental_in_flight.get(session_id):
-            _incremental_pending[session_id] = sentence
-            return
+            # Check if the in-flight call has timed out
+            start_time = _incremental_start_time.get(session_id, 0)
+            if time.monotonic() - start_time > _INCREMENTAL_TIMEOUT:
+                _incremental_in_flight[session_id] = False
+                _incremental_start_time.pop(session_id, None)
+            else:
+                _incremental_pending[session_id] = sentence
+                return
 
         _incremental_in_flight[session_id] = True
+        _incremental_start_time[session_id] = time.monotonic()
         try:
             await _do_incremental_analysis(sentence)
 
@@ -133,6 +143,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                 await run_incremental_analysis(pending)
         finally:
             _incremental_in_flight[session_id] = False
+            _incremental_start_time.pop(session_id, None)
 
     async def _do_incremental_analysis(sentence: str):
         accumulated = "".join(candidate_text)
@@ -243,6 +254,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                         # Cancel any pending incremental analysis
                         _incremental_in_flight.pop(session_id, None)
                         _incremental_pending.pop(session_id, None)
+                        _incremental_start_time.pop(session_id, None)
 
                         full_answer = "".join(candidate_text)
                         full_question = "".join(interviewer_text)
@@ -290,6 +302,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
                         _incremental_in_flight.pop(session_id, None)
                         _incremental_pending.pop(session_id, None)
+                        _incremental_start_time.pop(session_id, None)
 
                         resume_ctx = session.get("resume_text", "")
                         qa = session.get("qa_history", [])
@@ -320,3 +333,4 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         forward_task.cancel()
         _incremental_in_flight.pop(session_id, None)
         _incremental_pending.pop(session_id, None)
+        _incremental_start_time.pop(session_id, None)
