@@ -26,6 +26,7 @@ export function useInterview() {
   const [questionsRaw, setQuestionsRaw] = useState('');
   const [savedInterviews, setSavedInterviews] = useState<InterviewListItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [appError, setAppError] = useState<string | null>(null);
 
   const [followUpRaw, setFollowUpRaw] = useState('');
   const [evaluationRaw, setEvaluationRaw] = useState('');
@@ -78,6 +79,8 @@ export function useInterview() {
       setEvaluationRaw('');
     } else if (data.type === 'evaluation_stream') {
       setEvaluationRaw((prev: string) => prev + data.data);
+    } else if (data.type === 'error') {
+      setAppError(data.data || '未知错误');
     } else if (data.type === 'evaluation_complete') {
       setIsEvaluating(false);
     }
@@ -136,6 +139,7 @@ export function useInterview() {
       console.log('[generateQuestions] response status:', res.status, 'ok:', res.ok, 'has body:', !!res.body);
       if (!res.ok || !res.body) {
         console.error('[generateQuestions] fetch failed, status:', res.status);
+        setAppError(`题目生成失败 (HTTP ${res.status})`);
         setIsGeneratingQuestions(false);
         return;
       }
@@ -172,6 +176,7 @@ export function useInterview() {
       }
     } catch (e) {
       console.error('Failed to generate questions:', e);
+      setAppError('题目生成请求失败，请检查网络连接');
     } finally {
       setIsGeneratingQuestions(false);
     }
@@ -201,6 +206,7 @@ export function useInterview() {
       });
     } catch (e) {
       console.error('Failed to save interview:', e);
+      setAppError('面试保存失败，请重试');
     } finally {
       setIsSaving(false);
     }
@@ -277,6 +283,10 @@ export function useInterview() {
     setBankQuestionGroups([]);
   }, []);
 
+  const clearAppError = useCallback(() => {
+    setAppError(null);
+  }, []);
+
   return {
     status,
     sessionId,
@@ -313,5 +323,7 @@ export function useInterview() {
     addBankGroup,
     removeBankGroup,
     clearBankGroups,
+    appError,
+    clearAppError,
   };
 }

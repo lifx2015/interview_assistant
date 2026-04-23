@@ -9,7 +9,7 @@ interface UseWebSocketOptions {
   onError?: (e: Event) => void;
 }
 
-export type WSStatus = 'disconnected' | 'connecting' | 'connected';
+export type WSStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export function useWebSocket({
   url,
@@ -20,19 +20,21 @@ export function useWebSocket({
   onError,
 }: UseWebSocketOptions) {
   const [status, setStatus] = useState<WSStatus>('disconnected');
+  const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     setStatus('connecting');
+    setError(null);
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
 
     ws.onopen = () => {
       setStatus('connected');
+      setError(null);
       onOpen?.();
     };
 
@@ -54,16 +56,19 @@ export function useWebSocket({
       onClose?.();
     };
 
-    ws.onerror = (e) => {
-      onError?.(e);
+    ws.onerror = () => {
+      const msg = 'WebSocket 连接失败';
+      setStatus('error');
+      setError(msg);
+      onError?.(new Event(msg));
     };
   }, [url, onMessage, onBinaryMessage, onOpen, onClose, onError]);
 
   const disconnect = useCallback(() => {
-    clearTimeout(reconnectTimerRef.current);
     wsRef.current?.close();
     wsRef.current = null;
     setStatus('disconnected');
+    setError(null);
   }, []);
 
   const send = useCallback((data: any) => {
@@ -78,12 +83,16 @@ export function useWebSocket({
     }
   }, []);
 
+  const clearError = useCallback(() => {
+    setError(null);
+    if (status === 'error') setStatus('disconnected');
+  }, [status]);
+
   useEffect(() => {
     return () => {
-      clearTimeout(reconnectTimerRef.current);
       wsRef.current?.close();
     };
   }, []);
 
-  return { status, connect, disconnect, send, sendBinary };
+  return { status, error, connect, disconnect, send, sendBinary, clearError };
 }

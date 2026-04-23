@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import styles from './MainLayout.module.css';
 import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem, BankQuestionGroup } from '../types';
+import type { WSStatus } from '../hooks/useWebSocket';
 import { ResumeUploader } from './ResumeUploader';
 import { CandidatePanel } from './CandidatePanel';
 import { PDFViewer } from './PDFViewer';
@@ -10,6 +11,7 @@ import { ControlBar } from './ControlBar';
 import { QuestionPanel } from './QuestionPanel';
 import { AnalysisPanel } from './AnalysisPanel';
 import { InterviewListPanel } from './InterviewListPanel';
+import { StatusBar } from './StatusBar';
 import { Link } from 'react-router-dom';
 
 interface Props {
@@ -45,6 +47,13 @@ interface Props {
   onAddBankGroup: (group: BankQuestionGroup) => void;
   onRemoveBankGroup: (bankId: string) => void;
   onClearBankGroups: () => void;
+  wsStatus: WSStatus;
+  wsError: string | null;
+  audioError: string | null;
+  appError: string | null;
+  onClearAppError: () => void;
+  onClearWsError: () => void;
+  onReconnect: () => void;
 }
 
 export const MainLayout: React.FC<Props> = ({

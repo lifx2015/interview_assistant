@@ -199,10 +199,23 @@ SQLite 单表 `interviews`，字段包括 session_id, candidate(JSON), qa_histor
 ### 架构层面
 
 1. **会话状态持久化**: 当前 `sessions.py` 使用内存 dict，服务重启后丢失。面试进行中的状态应同步写入数据库，或使用 Redis。
-
 ### 功能层面
-3. **面试评估触发时机**: 当前仅在 WebSocket `stop` 时触发，如果 WebSocket 异常断开则不会生成评估。建议增加 HTTP API 触发评估作为兜底。
-4. **增量分析去重**: 当前每个句子都触发一次 LLM 调用，短句（如"嗯"、"对"）也会触发，浪费 API 调用。建议增加最小长度或语义过滤。
+2. **面试评估触发时机**: 当前仅在 WebSocket `stop` 时触发，如果 WebSocket 异常断开则不会生成评估。建议增加 HTTP API 触发评估作为兜底。
+3. **增量分析去重**: 当前每个句子都触发一次 LLM 调用，短句（如"嗯"、"对"）也会触发，浪费 API 调用。建议增加最小长度或语义过滤。
+4. **前端状态管理**: `useInterview` 有 20+ 个 state，每次更新触发大量重渲染。建议拆分为多个独立 state 或引入 Zustand/Jotai。
+5. **PDF 查看**: 使用 iframe 加载整个 PDF，大文件时内存占用高。建议使用 pdf.js 分页渲染。
+
+### 安全层面
+
+6. **WebSocket 无认证**: 任何人都可以连接 `/ws/asr/{session_id}`，建议增加 token 验证。
+7. **文件上传无类型校验**: 仅靠前端限制文件类型，后端应增加 magic bytes 校验。
+8. **SQL 注入**: 当前用参数化查询，但建议全面审计所有数据库操作。
+
+
+
+
+
+
 5. **音频采集**: 使用已废弃的 `ScriptProcessorNode`，建议迁移到 `AudioWorklet` 以获得更好的性能和更少的音频卡顿。
 6. **VoiceprintPanel 组件**: 存在于 `components/` 但未被使用，已被独立页面替代，应清理删除。
 7. **错误处理**: WebSocket 断连、LLM 调用失败等场景缺少前端友好提示，用户只看到空白。
@@ -210,11 +223,3 @@ SQLite 单表 `interviews`，字段包括 session_id, candidate(JSON), qa_histor
 ### 性能层面
 
 8. **LLM 调用并发控制**: `_incremental_in_flight` 用 dict 管理，但无超时机制，如果 LLM 调用卡住，后续句子会一直排队。建议增加超时自动释放。
-9. **前端状态管理**: `useInterview` 有 20+ 个 state，每次更新触发大量重渲染。建议拆分为多个独立 state 或引入 Zustand/Jotai。
-10. **PDF 查看**: 使用 iframe 加载整个 PDF，大文件时内存占用高。建议使用 pdf.js 分页渲染。
-
-### 安全层面
-
-11. **WebSocket 无认证**: 任何人都可以连接 `/ws/asr/{session_id}`，建议增加 token 验证。
-12. **文件上传无类型校验**: 仅靠前端限制文件类型，后端应增加 magic bytes 校验。
-13. **SQL 注入**: 当前用参数化查询，但建议全面审计所有数据库操作。

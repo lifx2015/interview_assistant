@@ -1,17 +1,17 @@
 import { useRef, useCallback, useState } from 'react';
-import { encodePCM } from '../utils/audioUtils';
 
 interface UseAudioCaptureOptions {
   onAudioData: (data: ArrayBuffer) => void;
-  bufferSize?: number;
 }
 
-export function useAudioCapture({ onAudioData, bufferSize = 4096 }: UseAudioCaptureOptions) {
+const WORKLET_URL = new URL('../worklets/pcm-processor.ts', import.meta.url);
+
+export function useAudioCapture({ onAudioData }: UseAudioCaptureOptions) {
   const [isCapturing, setIsCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const activeRef = useRef(false);
 
@@ -29,21 +29,21 @@ export function useAudioCapture({ onAudioData, bufferSize = 4096 }: UseAudioCapt
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
 
+      await audioContext.audioWorklet.addModule(WORKLET_URL);
+
       const source = audioContext.createMediaStreamSource(stream);
       sourceRef.current = source;
 
-      const processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
-      processorRef.current = processor;
+      const workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+      workletNodeRef.current = workletNode;
 
-      processor.onaudioprocess = (e) => {
+      workletNode.port.onmessage = (e) => {
         if (!activeRef.current) return;
-        const float32 = e.inputBuffer.getChannelData(0);
-        const pcmBuffer = encodePCM(float32, audioContext.sampleRate);
-        onAudioData(pcmBuffer);
+        onAudioData(e.data);
       };
 
-      source.connect(processor);
-      processor.connect(audioContext.destination);
+      source.connect(workletNode);
+      workletNode.connect(audioContext.destination);
 
       activeRef.current = true;
       setIsCapturing(true);
@@ -51,16 +51,16 @@ export function useAudioCapture({ onAudioData, bufferSize = 4096 }: UseAudioCapt
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Microphone access denied');
     }
-  }, [onAudioData, bufferSize]);
+  }, [onAudioData]);
 
   const stop = useCallback(() => {
     activeRef.current = false;
-    processorRef.current?.disconnect();
+    workletNodeRef.current?.disconnect();
     sourceRef.current?.disconnect();
     audioContextRef.current?.close();
     streamRef.current?.getTracks().forEach((t) => t.stop());
 
-    processorRef.current = null;
+    workletNodeRef.current = null;
     sourceRef.current = null;
     audioContextRef.current = null;
     streamRef.current = null;

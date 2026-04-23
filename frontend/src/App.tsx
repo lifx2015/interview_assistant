@@ -15,9 +15,8 @@ function App() {
 
   const handleWSMessage = useCallback((data: any) => {
     if (data.type === 'error') {
-      console.error('WS error:', data.data);
+      interview.handleASRResult(data);
     } else if (data.type === 'role_switched') {
-      // 声纹识别自动切换角色
       if (data.detected_by === 'voiceprint') {
         console.log('[Voiceprint] Auto-switched role to:', data.role, 'confidence:', data.confidence);
       }
@@ -92,6 +91,13 @@ function App() {
     }
   }, [interview.loadInterview]);
 
+  const handleReconnect = useCallback(() => {
+    ws.clearError();
+    if (interview.sessionId) {
+      ws.connect();
+    }
+  }, [ws.clearError, ws.connect, interview.sessionId]);
+
   return (
     <MainLayout
       candidate={interview.candidate}
@@ -126,6 +132,13 @@ function App() {
       onAddBankGroup={interview.addBankGroup}
       onRemoveBankGroup={interview.removeBankGroup}
       onClearBankGroups={interview.clearBankGroups}
+      wsStatus={ws.status}
+      wsError={ws.error}
+      audioError={audio.error}
+      appError={interview.appError}
+      onClearAppError={interview.clearAppError}
+      onClearWsError={ws.clearError}
+      onReconnect={handleReconnect}
     />
   );
 }
