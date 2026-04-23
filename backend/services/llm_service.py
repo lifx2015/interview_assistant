@@ -116,7 +116,21 @@ async def extract_resume_info(raw_text: str) -> CandidateInfo:
         messages=[{"role": "user", "content": prompt}],
         result_format="message",
     )
+
+    # 检查 API 响应是否有效
+    if resp is None or resp.output is None:
+        logger.error("DashScope API 返回空响应")
+        raise ValueError("简历解析 API 调用失败，请检查 API Key 是否有效")
+
+    if not resp.output.choices:
+        logger.error("DashScope API 返回无 choices: %s", resp)
+        raise ValueError("简历解析 API 返回结果异常")
+
     content = resp.output.choices[0].message.content
+    if not content:
+        logger.error("DashScope API 返回空内容")
+        raise ValueError("简历解析返回空内容，请重试")
+
     data = _extract_json(content)
     return CandidateInfo(**data)
 

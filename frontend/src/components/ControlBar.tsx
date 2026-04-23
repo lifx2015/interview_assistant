@@ -1,13 +1,11 @@
 import React from 'react';
 import styles from './ControlBar.module.css';
-import type { InterviewStatus, SpeakerRole } from '../types';
+import type { InterviewStatus } from '../types';
 
 interface Props {
   status: InterviewStatus;
-  currentRole: SpeakerRole;
   isAnalyzing: boolean;
   disabled?: boolean;
-  onSwitchRole: (role: SpeakerRole) => void;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -17,10 +15,8 @@ interface Props {
 
 export const ControlBar: React.FC<Props> = ({
   status,
-  currentRole,
   isAnalyzing,
   disabled = false,
-  onSwitchRole,
   onStart,
   onPause,
   onResume,
@@ -29,28 +25,6 @@ export const ControlBar: React.FC<Props> = ({
 }) => {
   return (
     <div className={styles['control-bar']}>
-      {/* Role switcher */}
-      <div className={styles['role-switcher']}>
-        <button
-          className={`${styles['role-btn']} ${currentRole === 'interviewer' ? styles.active : ''}`}
-          onClick={() => onSwitchRole('interviewer')}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-          </svg>
-          面试官
-        </button>
-        <button
-          className={`${styles['role-btn']} ${styles.candidate} ${currentRole === 'candidate' ? styles.active : ''}`}
-          onClick={() => onSwitchRole('candidate')}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-          </svg>
-          候选人
-        </button>
-      </div>
-
       {/* Action buttons */}
       <div className={styles['action-buttons']}>
         {status === 'idle' && (
@@ -96,7 +70,7 @@ export const ControlBar: React.FC<Props> = ({
         {status !== 'idle' && (
           <button className="btn btn-stop" onClick={onStop}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
-            关闭
+            面试结束
           </button>
         )}
       </div>

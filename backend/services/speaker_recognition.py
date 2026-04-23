@@ -9,10 +9,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 
-# 设置 HuggingFace 本地策略为复制，避免 Windows 符号链接权限问题
-os.environ['HF_HUB_LOCAL_STRATEGY'] = 'copy'
-os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
-
 
 class SpeakerRecognizer(abc.ABC):
     """声纹识别抽象基类"""
@@ -182,23 +178,22 @@ class SpeechBrainRecognizer(SpeakerRecognizer):
         try:
             import torch
             from speechbrain.inference.speaker import EncoderClassifier
-            from huggingface_hub import snapshot_download
 
-            # 使用 snapshot_download 手动下载模型，禁用符号链接
-            model_path = snapshot_download(
-                repo_id="speechbrain/spkrec-ecapa-voxceleb",
-                cache_dir=self.model_cache_dir + "/hf_cache",
-                local_dir=self.model_cache_dir + "/speechbrain_model",
-                local_dir_use_symlinks=False,
-                resume_download=True,
-            )
+            # 直接使用本地模型路径
+            model_path = os.path.abspath(os.path.join(self.model_cache_dir, "speechbrain_model"))
 
-            # 直接从下载的路径加载模型，不使用 savedir（避免创建符号链接）
+            if not os.path.exists(model_path):
+                print(f"⚠️ 本地模型路径不存在: {model_path}")
+                print("将使用简单声纹识别作为备选")
+                self._model = None
+                return
+
+            # 从本地路径加载模型
             self._model = EncoderClassifier.from_hparams(
                 source=model_path,
                 run_opts={"device": self.device}
             )
-            print("✅ SpeechBrain ECAPA-TDNN 模型加载成功")
+            print(f"✅ SpeechBrain ECAPA-TDNN 模型加载成功 (本地路径: {model_path})")
         except Exception as e:
             print(f"⚠️ SpeechBrain 模型加载失败: {e}")
             print("将使用简单声纹识别作为备选")

@@ -83,6 +83,8 @@ export function useInterview() {
       setAppError(data.data || '未知错误');
     } else if (data.type === 'evaluation_complete') {
       setIsEvaluating(false);
+      setStatus('idle');
+      setFollowUpRaw('');
     }
   }, []);
 

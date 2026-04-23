@@ -3,7 +3,6 @@ import { MainLayout } from './components/MainLayout';
 import { useInterview } from './hooks/useInterview';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useAudioCapture } from './hooks/useAudioCapture';
-import type { SpeakerRole } from './types';
 import './styles/global.css';
 import './styles/animations.css';
 import './styles/markdown.css';
@@ -75,11 +74,6 @@ function App() {
     interview.submitAnswer();
   }, [ws.send, interview.submitAnswer]);
 
-  const handleSwitchRole = useCallback((role: SpeakerRole) => {
-    interview.switchRole(role);
-    ws.send({ type: 'control', action: 'switch_role', role });
-  }, [interview.switchRole, ws.send]);
-
   const handleSave = useCallback(() => {
     interview.saveInterview(noteContent);
   }, [interview.saveInterview, noteContent]);
@@ -116,7 +110,6 @@ function App() {
       noteContent={noteContent}
       onNoteChange={setNoteContent}
       onUploadSuccess={interview.onUploadSuccess}
-      onSwitchRole={handleSwitchRole}
       onStart={handleStart}
       onPause={handlePause}
       onResume={handleResume}

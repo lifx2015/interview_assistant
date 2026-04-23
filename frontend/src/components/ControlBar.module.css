@@ -8,42 +8,6 @@
   flex-shrink: 0;
 }
 
-.role-switcher {
-  display: flex;
-  gap: 0;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-}
-
-.role-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.role-btn:hover {
-  color: var(--text-primary);
-}
-
-.role-btn.active {
-  background: rgba(0, 212, 255, 0.12);
-  color: var(--accent-cyan);
-}
-
-.role-btn.candidate.active {
-  background: rgba(0, 255, 136, 0.1);
-  color: var(--accent-green);
-}
-
 .action-buttons {
   display: flex;
   align-items: center;

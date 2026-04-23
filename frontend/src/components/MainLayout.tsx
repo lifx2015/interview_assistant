@@ -31,7 +31,6 @@ interface Props {
   noteContent: string;
   onNoteChange: (v: string) => void;
   onUploadSuccess: (sessionId: string, candidate: CandidateInfo) => void;
-  onSwitchRole: (role: SpeakerRole) => void;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -62,7 +61,7 @@ export const MainLayout: React.FC<Props> = ({
   isGeneratingQuestions, questionsRaw, followUpRaw,
   evaluationRaw, isEvaluating,
   noteContent, onNoteChange,
-  onUploadSuccess, onSwitchRole, onStart, onPause, onResume,
+  onUploadSuccess, onStart, onPause, onResume,
   onStop, onSubmitAnswer, onGenerateQuestions,
   onSave, isSaving, savedInterviews, onLoadInterview, onFetchList,
   bankQuestionGroups, onAddBankGroup, onRemoveBankGroup,
@@ -268,8 +267,8 @@ export const MainLayout: React.FC<Props> = ({
               {rightTab === 'transcript' ? (
                 <div className={styles['transcript-tab-content']}>
                   <TranscriptPanel status={status} transcript={transcript} currentPartial={currentPartial} currentRole={currentRole} />
-                  <ControlBar status={status} currentRole={currentRole} isAnalyzing={isAnalyzing}
-                    onSwitchRole={onSwitchRole} onStart={onStart} onPause={onPause} onResume={onResume}
+                  <ControlBar status={status} isAnalyzing={isAnalyzing}
+                    onStart={onStart} onPause={onPause} onResume={onResume}
                     onStop={onStop} onSubmitAnswer={onSubmitAnswer} disabled={!sessionId} />
                 </div>
               ) : (
