@@ -22,6 +22,7 @@ export function useWebSocket({
   const [status, setStatus] = useState<WSStatus>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const wasConnectedRef = useRef(false);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -33,6 +34,7 @@ export function useWebSocket({
     wsRef.current = ws;
 
     ws.onopen = () => {
+      wasConnectedRef.current = true;
       setStatus('connected');
       setError(null);
       onOpen?.();
@@ -52,7 +54,12 @@ export function useWebSocket({
     };
 
     ws.onclose = () => {
-      setStatus('disconnected');
+      if (wasConnectedRef.current) {
+        setStatus('error');
+        setError('与服务器的连接已断开');
+      } else {
+        setStatus('disconnected');
+      }
       onClose?.();
     };
 
@@ -65,6 +72,7 @@ export function useWebSocket({
   }, [url, onMessage, onBinaryMessage, onOpen, onClose, onError]);
 
   const disconnect = useCallback(() => {
+    wasConnectedRef.current = false;
     wsRef.current?.close();
     wsRef.current = null;
     setStatus('disconnected');

@@ -43,12 +43,12 @@ ASR 结果 → useInterview.handleASRResult → 更新 transcript/followUpRaw/ev
 
 ## 注意事项
 
-- 前端音频用 `ScriptProcessorNode` (已废弃)，PCM 格式 16kHz 16bit 单声道
+- 前端音频用 `AudioWorklet` (`worklets/pcm-processor.ts`)，PCM 格式 16kHz 16bit 单声道，重采样在 Worklet 线程完成
 - 声纹文件必须保存为 WAV 格式 (torchaudio 要求)，`voiceprint_service.pcm_to_wav()` 做转换
-- 增量分析有防抖机制 (`_incremental_in_flight` / `_incremental_pending`)，防止 LLM 调用重叠
+- 增量分析有防抖机制 (`_incremental_in_flight` / `_incremental_pending`)，防止 LLM 调用重叠；含 30s 超时自动释放
 - 对话历史压缩: `_compress_history()` 保留最近 3 轮完整对话，更早的摘要化
-- `VoiceprintPanel.tsx` 组件未使用，已被 `VoiceprintManagementPage` 替代
 - `GLOBAL_INTERVIEWER_SESSION = "global_interviewers"`，前端声纹注册必须用此值
+- WebSocket 断连/错误通过 `StatusBar` 组件提示用户，支持重新连接；LLM 错误通过 `appError` 状态显示
 
 ## 测试
 
