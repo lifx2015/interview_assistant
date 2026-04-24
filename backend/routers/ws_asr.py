@@ -1,5 +1,5 @@
 """
-WebSocket ASR route with voiceprint role switching and real-time follow-up analysis.
+WebSocket ASR route with voiceprint-based role detection and real-time follow-up analysis.
 """
 import asyncio
 import json
@@ -10,7 +10,11 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.routers.sessions import get_sessions
 from backend.services.asr_service import ASRService
-from backend.services.llm_service import incremental_analyze_stream, interview_evaluation_stream, psychology_analyze_stream
+from backend.services.llm_service import (
+    incremental_analyze_stream,
+    interview_evaluation_stream,
+    psychology_analyze_stream,
+)
 from backend.services.voiceprint_service import voiceprint_service
 
 router = APIRouter()
@@ -54,6 +58,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
     voiceprint_hit_count = 0
     voiceprint_candidate_role: str | None = None
     VOICEPRINT_SWITCH_THRESHOLD = 3
+    INTERVIEWER_CONFIDENCE_THRESHOLD = 0.6
 
     job_requirement: dict | None = None
 
@@ -81,12 +86,14 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         nonlocal current_question
         nonlocal _last_analysis_time
         nonlocal _last_analysis_accumulated
+        nonlocal _psychology_trigger_count
         has_candidate_spoken_this_round = False
         main_question = ""
         follow_up_questions = []
         current_question = ""
         _last_analysis_time = 0.0
         _last_analysis_accumulated = 0
+        _psychology_trigger_count = 0
         reset_voiceprint_state()
 
     def on_partial(text: str, sentence_id: int):
@@ -123,8 +130,23 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
     asr_started = False
 
+    async def set_role(new_role: str, detected_by: str, confidence: float | None = None, cached: bool = False):
+        nonlocal current_role
+        if new_role == current_role:
+            return
+        current_role = new_role
+        payload = {
+            "type": "role_switched",
+            "role": current_role,
+            "detected_by": detected_by,
+            "cached": cached,
+        }
+        if confidence is not None:
+            payload["confidence"] = confidence
+        await websocket.send_json(payload)
+
     async def check_voiceprint_and_switch(audio_data: bytes):
-        nonlocal current_role, voiceprint_hit_count, voiceprint_candidate_role
+        nonlocal voiceprint_hit_count, voiceprint_candidate_role
 
         if not voiceprint_enabled:
             return
@@ -143,15 +165,15 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             reset_voiceprint_state()
             return
 
-        detected_role = result.get("role", "candidate")
-        confidence = result.get("confidence", 0.0)
+        matched = bool(result.get("matched"))
+        confidence = float(result.get("confidence", 0.0) or 0.0)
 
-        if detected_role == "unknown":
-            logger.warning("Voiceprint returned unknown role: %s", result)
-            return
-
-        if confidence < 0.6:
-            return
+        # Product rule: only matched interviewer voiceprints can become interviewer.
+        # Everybody else is always candidate.
+        if matched and result.get("role") == "interviewer" and confidence >= INTERVIEWER_CONFIDENCE_THRESHOLD:
+            detected_role = "interviewer"
+        else:
+            detected_role = "candidate"
 
         if detected_role == current_role:
             reset_voiceprint_state(clear_chunks=False)
@@ -167,22 +189,19 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             return
 
         logger.info(
-            "[Voiceprint] Stabilized role change: %s -> %s (confidence=%.2f, hits=%d)",
+            "[Voiceprint] role change %s -> %s (matched=%s confidence=%.2f hits=%d)",
             current_role,
             detected_role,
+            matched,
             confidence,
             voiceprint_hit_count,
         )
-        current_role = detected_role
         reset_voiceprint_state(clear_chunks=False)
-        await websocket.send_json(
-            {
-                "type": "role_switched",
-                "role": current_role,
-                "detected_by": "voiceprint",
-                "confidence": confidence,
-                "cached": result.get("cached", False),
-            }
+        await set_role(
+            detected_role,
+            detected_by="voiceprint",
+            confidence=confidence,
+            cached=bool(result.get("cached", False)),
         )
 
     async def run_incremental_analysis(sentence: str):
@@ -226,16 +245,12 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                 conversation_history=conversation_history,
             ):
                 await websocket.send_json({"type": "follow_up_stream", "data": chunk})
-
             await websocket.send_json({"type": "follow_up_complete"})
         except Exception as e:
             logger.exception("Incremental analysis failed")
-            await websocket.send_json(
-                {"type": "error", "data": f"Incremental analysis failed: {str(e)}"}
-            )
+            await websocket.send_json({"type": "error", "data": f"Incremental analysis failed: {str(e)}"})
 
     async def run_psychology_analysis(sentence: str):
-        """Run psychology/cheating analysis for a candidate sentence."""
         nonlocal _psychology_in_flight
         if _psychology_in_flight:
             return
@@ -257,7 +272,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             ):
                 await websocket.send_json({"type": "psychology_stream", "data": chunk})
             await websocket.send_json({"type": "psychology_complete"})
-        except Exception as e:
+        except Exception:
             logger.exception("Psychology analysis failed")
         finally:
             _psychology_in_flight = False
@@ -320,7 +335,6 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                     _last_analysis_accumulated = accumulated_len
                     asyncio.create_task(run_incremental_analysis(item["text"]))
 
-                    # Trigger psychology analysis every N incremental analyses
                     _psychology_trigger_count += 1
                     if _psychology_trigger_count >= _PSYCHOLOGY_TRIGGER_INTERVAL:
                         _psychology_trigger_count = 0
@@ -356,16 +370,10 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
             action = msg.get("action", "")
 
-            if action == "switch_role":
-                current_role = msg.get("role", "interviewer")
-                reset_voiceprint_state()
-                await websocket.send_json(
-                    {"type": "role_switched", "role": current_role, "detected_by": "manual"}
-                )
-
-            elif action == "enable_voiceprint":
+            if action == "enable_voiceprint":
                 voiceprint_enabled = True
                 reset_voiceprint_state()
+                await set_role("candidate", detected_by="voiceprint-default")
                 await websocket.send_json(
                     {"type": "voiceprint_status", "enabled": True, "message": "声纹识别已启用"}
                 )
