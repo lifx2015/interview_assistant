@@ -16,14 +16,18 @@ function App() {
   const [voiceprintEnabled, setVoiceprintEnabled] = useState(false);
 
   const handleWSMessage = useCallback((data: any) => {
+    console.log('[App] WS message received:', data.type, data);
     if (data.type === 'error') {
       interview.handleASRResult(data);
     } else if (data.type === 'role_switched') {
       if (data.detected_by === 'voiceprint') {
-        console.log('[Voiceprint] Auto-switched role to:', data.role, 'confidence:', data.confidence);
+        console.log('[App] Voiceprint auto-switched role to:', data.role, 'confidence:', data.confidence);
+      } else {
+        console.log('[App] Manual role switch confirmed:', data.role);
       }
       interview.switchRole(data.role);
     } else if (data.type === 'voiceprint_status') {
+      console.log('[App] Voiceprint status changed:', data.enabled);
       setVoiceprintEnabled(data.enabled);
     } else {
       interview.handleASRResult(data);
@@ -122,11 +126,13 @@ function App() {
   const handleToggleVoiceprint = useCallback(() => {
     if (ws.status !== 'connected') return;
     const action = voiceprintEnabled ? 'disable_voiceprint' : 'enable_voiceprint';
+    console.log('[App] Toggle voiceprint:', action);
     ws.send({ type: 'control', action });
   }, [ws.status, ws.send, voiceprintEnabled]);
 
   const handleManualRoleSwitch = useCallback((role: 'interviewer' | 'candidate') => {
     if (ws.status !== 'connected') return;
+    console.log('[App] Manual role switch requested:', role);
     ws.send({ type: 'control', action: 'switch_role', role });
   }, [ws.status, ws.send]);
 

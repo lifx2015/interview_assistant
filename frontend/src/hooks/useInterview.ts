@@ -45,11 +45,13 @@ export function useInterview() {
   const handleASRResult = useCallback((data: any) => {
     console.log('[useInterview] handleASRResult:', data);
     if (data.type === 'partial') {
+      console.log('[useInterview] partial: role=%s text=%s', data.role, data.text?.slice(0, 50));
       setCurrentPartial(data.text);
       return;
     }
 
     if (data.type === 'sentence') {
+      console.log('[useInterview] sentence: role=%s text=%s', data.role, data.text?.slice(0, 100));
       sentenceIdRef.current += 1;
       const entry: TranscriptEntry = {
         id: sentenceIdRef.current,
@@ -69,6 +71,7 @@ export function useInterview() {
     }
 
     if (data.type === 'role_switched') {
+      console.log('[useInterview] role_switched: new_role=%s detected_by=%s', data.role, data.detected_by);
       setCurrentRole(data.role);
       return;
     }

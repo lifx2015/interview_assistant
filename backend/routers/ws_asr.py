@@ -15,6 +15,8 @@ from backend.services.voiceprint_service import voiceprint_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+# 设置日志级别为 DEBUG 以便调试
+logger.setLevel(logging.DEBUG)
 
 
 _incremental_in_flight: dict[str, bool] = {}
@@ -90,6 +92,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         reset_voiceprint_state()
 
     def on_partial(text: str, sentence_id: int):
+        logger.debug("[ASR] partial: role=%s text=%s", current_role, text[:50] if text else "")
         asyncio.run_coroutine_threadsafe(
             result_queue.put(
                 {
@@ -103,6 +106,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         )
 
     def on_sentence(text: str, sentence_id: int):
+        logger.info("[ASR] sentence: role=%s text=%s", current_role, text[:100] if text else "")
         asyncio.run_coroutine_threadsafe(
             result_queue.put(
                 {
@@ -127,14 +131,19 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         nonlocal current_role, voiceprint_hit_count, voiceprint_candidate_role
 
         if not voiceprint_enabled:
+            logger.debug("[Voiceprint] Disabled, skip identification")
             return
 
         voiceprints = await voiceprint_service.get_global_voiceprints()
         if not voiceprints:
+            logger.warning("[Voiceprint] No registered voiceprints, cannot identify")
             return
+
+        logger.debug("[Voiceprint] Checking audio chunk, current_role=%s, registered_count=%d", current_role, len(voiceprints))
 
         try:
             result = voiceprint_service.identify_speaker(audio_data=audio_data, threshold=0.5)
+            logger.info("[Voiceprint] Identify result: %s", result)
         except Exception as e:
             logger.exception("Voiceprint identification failed")
             await websocket.send_json(
@@ -146,22 +155,29 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         detected_role = result.get("role", "candidate")
         confidence = result.get("confidence", 0.0)
 
+        logger.info("[Voiceprint] detected_role=%s confidence=%.2f current_role=%s cached=%s",
+                    detected_role, confidence, current_role, result.get("cached", False))
+
         if detected_role == "unknown":
             logger.warning("Voiceprint returned unknown role: %s", result)
             return
 
         if confidence < 0.6:
+            logger.debug("[Voiceprint] Confidence too low (%.2f < 0.6), skip role switch", confidence)
             return
 
         if detected_role == current_role:
+            logger.debug("[Voiceprint] Same role detected (%s), reset state", detected_role)
             reset_voiceprint_state(clear_chunks=False)
             return
 
         if detected_role == voiceprint_candidate_role:
             voiceprint_hit_count += 1
+            logger.info("[Voiceprint] Same candidate_role detected, hit_count=%d", voiceprint_hit_count)
         else:
             voiceprint_candidate_role = detected_role
             voiceprint_hit_count = 1
+            logger.info("[Voiceprint] New candidate_role=%s, hit_count reset to 1", detected_role)
 
         if voiceprint_hit_count < VOICEPRINT_SWITCH_THRESHOLD:
             return
@@ -359,6 +375,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             if action == "switch_role":
                 current_role = msg.get("role", "interviewer")
                 reset_voiceprint_state()
+                logger.info("[RoleSwitch] MANUAL switch to role=%s", current_role)
                 await websocket.send_json(
                     {"type": "role_switched", "role": current_role, "detected_by": "manual"}
                 )
@@ -366,6 +383,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             elif action == "enable_voiceprint":
                 voiceprint_enabled = True
                 reset_voiceprint_state()
+                logger.info("[Voiceprint] ENABLED by user, will auto-switch roles")
                 await websocket.send_json(
                     {"type": "voiceprint_status", "enabled": True, "message": "声纹识别已启用"}
                 )
@@ -373,6 +391,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             elif action == "disable_voiceprint":
                 voiceprint_enabled = False
                 reset_voiceprint_state()
+                logger.info("[Voiceprint] DISABLED by user, roles will stay static")
                 await websocket.send_json(
                     {"type": "voiceprint_status", "enabled": False, "message": "声纹识别已禁用"}
                 )
