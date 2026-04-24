@@ -5,6 +5,8 @@ import asyncio
 import json
 import logging
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -19,8 +21,9 @@ from backend.services.voiceprint_service import voiceprint_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-# 设置日志级别为 DEBUG 以便调试
-logger.setLevel(logging.DEBUG)
+
+# 声纹识别用独立线程池，完全不阻塞 asyncio 事件循环
+_voiceprint_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voiceprint")
 
 
 _incremental_in_flight: dict[str, bool] = {}
@@ -31,7 +34,12 @@ _INCREMENTAL_TIMEOUT = 30.0
 
 @router.websocket("/ws/asr/{session_id}")
 async def asr_websocket(websocket: WebSocket, session_id: str):
-    await websocket.accept()
+    try:
+        await websocket.accept()
+        logger.info("[WebSocket] Connected: session_id=%s", session_id)
+    except Exception as e:
+        logger.error("[WebSocket] Failed to accept: %s", e)
+        return
 
     sessions = get_sessions()
     if session_id not in sessions:
@@ -44,7 +52,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
     result_queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
-    current_role = "interviewer"
+    current_role = "candidate"  # 默认为候选人，只有识别到面试官声纹才切换
     interviewer_text: list[str] = []
     candidate_text: list[str] = []
     conversation_history: list[dict] = []
@@ -54,13 +62,36 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
     main_question = ""
     follow_up_questions: list[str] = []
 
-    voiceprint_enabled = False
+    # 声纹识别队列：存储未确认角色的句子
+    pending_sentences: list[dict] = []  # [{text, sentence_id, timestamp}]
+    _voiceprint_identifying = False  # 是否正在声纹识别
+
+    # 声纹已在服务启动时加载，直接检查状态
+    try:
+        voiceprints = await voiceprint_service.get_global_voiceprints()
+        voiceprint_enabled = len(voiceprints) > 0
+        logger.info("[Voiceprint] Check: registered=%d, enabled=%s", len(voiceprints), voiceprint_enabled)
+
+        if voiceprint_enabled:
+            await websocket.send_json({
+                "type": "voiceprint_status",
+                "enabled": True,
+                "message": f"声纹识别已启用（已注册 {len(voiceprints)} 个面试官声纹）"
+            })
+        else:
+            await websocket.send_json({
+                "type": "voiceprint_status",
+                "enabled": False,
+                "message": "请先在声纹管理页面注册面试官声纹"
+            })
+    except Exception as e:
+        logger.error("[Voiceprint] Check failed: %s", e)
+        voiceprint_enabled = False
+
     recent_audio_chunks: list[bytes] = []
-    VOICEPRINT_CHUNK_COUNT = 5
-    voiceprint_hit_count = 0
-    voiceprint_candidate_role: str | None = None
-    VOICEPRINT_SWITCH_THRESHOLD = 3
-    INTERVIEWER_CONFIDENCE_THRESHOLD = 0.6
+    voiceprint_accumulated_bytes = 0
+    VOICEPRINT_MIN_BYTES = 48000  # 1.5秒音频才触发（平衡速度和准确度）
+    INTERVIEWER_CONFIDENCE_THRESHOLD = 0.75
 
     job_requirement: dict | None = None
 
@@ -75,9 +106,8 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
     _PSYCHOLOGY_TRIGGER_INTERVAL = 3
 
     def reset_voiceprint_state(clear_chunks: bool = True):
-        nonlocal voiceprint_hit_count, voiceprint_candidate_role, recent_audio_chunks
-        voiceprint_hit_count = 0
-        voiceprint_candidate_role = None
+        nonlocal recent_audio_chunks, voiceprint_accumulated_bytes
+        voiceprint_accumulated_bytes = 0
         if clear_chunks:
             recent_audio_chunks = []
 
@@ -99,7 +129,8 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         reset_voiceprint_state()
 
     def on_partial(text: str, sentence_id: int):
-        logger.debug("[ASR] partial: role=%s text=%s", current_role, text[:50] if text else "")
+        partial_time = time.monotonic()
+        logger.debug("[TIMING] on_partial callback: text_len=%d, time=%.3f", len(text), partial_time)
         asyncio.run_coroutine_threadsafe(
             result_queue.put(
                 {
@@ -113,16 +144,24 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         )
 
     def on_sentence(text: str, sentence_id: int):
-        logger.info("[ASR] sentence: role=%s text=%s", current_role, text[:100] if text else "")
+        sentence_time = time.monotonic()
+        logger.info("[TIMING] on_sentence: text='%s' time=%.3f, voiceprint_identifying=%s",
+                    text[:50] if text else "", sentence_time, _voiceprint_identifying)
+
+        # 加入待确认队列
+        pending_sentences.append({
+            "text": text,
+            "sentence_id": sentence_id,
+            "timestamp": sentence_time,
+        })
+
+        # 发送 pending 状态给前端
         asyncio.run_coroutine_threadsafe(
-            result_queue.put(
-                {
-                    "type": "sentence",
-                    "text": text,
-                    "sentence_id": sentence_id,
-                    "role": current_role,
-                }
-            ),
+            result_queue.put({
+                "type": "sentence_pending",
+                "text": text,
+                "sentence_id": sentence_id,
+            }),
             loop,
         )
 
@@ -134,87 +173,68 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
     asr_started = False
 
-    async def set_role(new_role: str, detected_by: str, confidence: float | None = None, cached: bool = False):
-        nonlocal current_role
-        if new_role == current_role:
-            return
-        current_role = new_role
-        payload = {
-            "type": "role_switched",
-            "role": current_role,
-            "detected_by": detected_by,
-            "cached": cached,
-        }
-        if confidence is not None:
-            payload["confidence"] = confidence
-        await websocket.send_json(payload)
+    async def run_voiceprint_identification(audio_data: bytes):
+        """在独立线程中执行声纹识别，完成后确认所有 pending 句子"""
+        nonlocal current_role, _voiceprint_identifying, pending_sentences
+        logger.info("[VOICEPRINT-TASK] START audio_len=%d, pending_sentences=%d",
+                    len(audio_data), len(pending_sentences))
+        _voiceprint_identifying = True
 
-    async def check_voiceprint_and_switch(audio_data: bytes):
-        nonlocal voiceprint_hit_count, voiceprint_candidate_role
-
-        if not voiceprint_enabled:
-            logger.debug("[Voiceprint] Disabled, skip identification")
-            return
-
-        voiceprints = await voiceprint_service.get_global_voiceprints()
-        if not voiceprints:
-            logger.warning("[Voiceprint] No registered voiceprints, cannot identify")
-            return
-
-        logger.debug("[Voiceprint] Checking audio chunk, current_role=%s, registered_count=%d", current_role, len(voiceprints))
+        def do_identification():
+            logger.info("[VOICEPRINT-THREAD] Running identification...")
+            try:
+                result = voiceprint_service.identify_speaker(audio_data=audio_data, threshold=0.75)
+                logger.info("[VOICEPRINT-THREAD] Result: matched=%s role=%s confidence=%.2f",
+                            result.get("matched"), result.get("role"), result.get("confidence", 0))
+                return result
+            except Exception as e:
+                logger.error("[VOICEPRINT-THREAD] FAILED: %s", e)
+                return None
 
         try:
-            result = voiceprint_service.identify_speaker(audio_data=audio_data, threshold=0.5)
-            logger.info("[Voiceprint] Identify result: %s", result)
+            result = await asyncio.get_running_loop().run_in_executor(_voiceprint_executor, do_identification)
         except Exception as e:
-            logger.exception("Voiceprint identification failed")
-            await websocket.send_json(
-                {"type": "error", "data": f"Voiceprint identification failed: {str(e)}"}
-            )
-            reset_voiceprint_state()
+            logger.error("[VOICEPRINT-TASK] Executor failed: %s", e)
+            _voiceprint_identifying = False
             return
 
-        matched = bool(result.get("matched"))
-        confidence = float(result.get("confidence", 0.0) or 0.0)
-
-        # Product rule: only matched interviewer voiceprints can become interviewer.
-        # Everybody else is always candidate.
-        if matched and result.get("role") == "interviewer" and confidence >= INTERVIEWER_CONFIDENCE_THRESHOLD:
-            detected_role = "interviewer"
+        if result is None:
+            logger.warning("[VOICEPRINT-TASK] No result, using current_role=%s", current_role)
         else:
-            detected_role = "candidate"
+            matched = bool(result.get("matched"))
+            confidence = float(result.get("confidence", 0.0) or 0.0)
 
-        if detected_role == current_role:
-            logger.debug("[Voiceprint] Same role detected (%s), reset state", detected_role)
-            reset_voiceprint_state(clear_chunks=False)
-            return
+            if matched and result.get("role") == "interviewer" and confidence >= INTERVIEWER_CONFIDENCE_THRESHOLD:
+                new_role = "interviewer"
+            else:
+                new_role = "candidate"
 
-        if detected_role == voiceprint_candidate_role:
-            voiceprint_hit_count += 1
-            logger.info("[Voiceprint] Same candidate_role detected, hit_count=%d", voiceprint_hit_count)
-        else:
-            voiceprint_candidate_role = detected_role
-            voiceprint_hit_count = 1
-            logger.info("[Voiceprint] New candidate_role=%s, hit_count reset to 1", detected_role)
+            if new_role != current_role:
+                logger.info("[VOICEPRINT-TASK] ROLE CHANGE: %s -> %s", current_role, new_role)
+                current_role = new_role
+                await websocket.send_json({
+                    "type": "role_switched",
+                    "role": current_role,
+                    "detected_by": "voiceprint",
+                    "confidence": confidence,
+                })
 
-        if voiceprint_hit_count < VOICEPRINT_SWITCH_THRESHOLD:
-            return
+        # 确认所有 pending 句子的角色
+        confirmed_role = current_role
+        logger.info("[VOICEPRINT-TASK] Confirming %d pending sentences as role=%s",
+                    len(pending_sentences), confirmed_role)
 
-        logger.info(
-            "[Voiceprint] role change %s -> %s (matched=%s confidence=%.2f hits=%d)",
-            current_role,
-            detected_role,
-            matched,
-            confidence,
-            voiceprint_hit_count,
-        )
-        reset_voiceprint_state(clear_chunks=False)
-        await set_role(
-            detected_role,
-            detected_by="voiceprint",
-            confidence=confidence,
-            cached=bool(result.get("cached", False)),
-        )
+        for sent in pending_sentences:
+            await websocket.send_json({
+                "type": "sentence_confirmed",
+                "text": sent["text"],
+                "sentence_id": sent["sentence_id"],
+                "role": confirmed_role,
+            })
+
+        pending_sentences.clear()
+        _voiceprint_identifying = False
+        logger.info("[VOICEPRINT-TASK] END")
 
     async def run_incremental_analysis(sentence: str):
         if _incremental_in_flight.get(session_id):
@@ -299,78 +319,111 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             nonlocal _last_analysis_accumulated
             nonlocal _psychology_trigger_count
 
-            while True:
-                item = await result_queue.get()
-                if item["type"] == "error":
+            logger.info("[FORWARD] Task started")
+            try:
+                while True:
+                    item = await result_queue.get()
+                    forward_time = time.monotonic()
+                    logger.debug("[TIMING] forward_results: type=%s role=%s time=%.3f", item["type"], item.get("role"), forward_time)
+
+                    # 直接发送，不暂存
+                    if item["type"] == "error":
+                        await websocket.send_json(item)
+                        continue
+
                     await websocket.send_json(item)
-                    continue
+                    send_time = time.monotonic() - forward_time
+                    logger.debug("[TIMING] websocket.send_json took %.3fms", send_time * 1000)
 
-                await websocket.send_json(item)
-                if item["type"] != "sentence":
-                    continue
+                    if item["type"] != "sentence":
+                        continue
 
-                if item["role"] == "interviewer":
-                    interviewer_text.append(item["text"])
-                    if has_candidate_spoken_this_round:
-                        follow_up_questions.append(item["text"])
-                    else:
-                        main_question += item["text"]
-                    current_question = main_question
-                    continue
+                    if item["role"] == "interviewer":
+                        interviewer_text.append(item["text"])
+                        if has_candidate_spoken_this_round:
+                            follow_up_questions.append(item["text"])
+                        else:
+                            main_question += item["text"]
+                        current_question = main_question
+                        continue
 
-                candidate_text.append(item["text"])
-                has_candidate_spoken_this_round = True
+                    candidate_text.append(item["text"])
+                    has_candidate_spoken_this_round = True
 
-                accumulated_len = sum(len(s) for s in candidate_text)
-                now = time.monotonic()
-                time_since_last = now - _last_analysis_time if _last_analysis_time > 0 else float("inf")
-                len_since_last = accumulated_len - _last_analysis_accumulated
+                    accumulated_len = sum(len(s) for s in candidate_text)
+                    now = time.monotonic()
+                    time_since_last = now - _last_analysis_time if _last_analysis_time > 0 else float("inf")
+                    len_since_last = accumulated_len - _last_analysis_accumulated
 
-                should_trigger = False
-                if len(item["text"]) >= _ANALYSIS_MIN_SENTENCE_LEN:
-                    should_trigger = True
-                elif len_since_last >= _ANALYSIS_ACCUMULATED_INTERVAL:
-                    should_trigger = True
-                elif time_since_last >= _ANALYSIS_TIME_GAP and accumulated_len > 50:
-                    should_trigger = True
+                    should_trigger = False
+                    if len(item["text"]) >= _ANALYSIS_MIN_SENTENCE_LEN:
+                        should_trigger = True
+                    elif len_since_last >= _ANALYSIS_ACCUMULATED_INTERVAL:
+                        should_trigger = True
+                    elif time_since_last >= _ANALYSIS_TIME_GAP and accumulated_len > 50:
+                        should_trigger = True
 
-                logger.info(
-                    "[IncrementalAnalysis] role=%s sentence_len=%d accumulated_len=%d should_trigger=%s",
-                    item["role"],
-                    len(item["text"]),
-                    accumulated_len,
-                    should_trigger,
-                )
+                    if should_trigger:
+                        _last_analysis_time = now
+                        _last_analysis_accumulated = accumulated_len
+                        asyncio.create_task(run_incremental_analysis(item["text"]))
 
-                if should_trigger:
-                    _last_analysis_time = now
-                    _last_analysis_accumulated = accumulated_len
-                    asyncio.create_task(run_incremental_analysis(item["text"]))
-
-                    _psychology_trigger_count += 1
-                    if _psychology_trigger_count >= _PSYCHOLOGY_TRIGGER_INTERVAL:
-                        _psychology_trigger_count = 0
-                        asyncio.create_task(run_psychology_analysis(item["text"]))
+                        _psychology_trigger_count += 1
+                        if _psychology_trigger_count >= _PSYCHOLOGY_TRIGGER_INTERVAL:
+                            _psychology_trigger_count = 0
+                            asyncio.create_task(run_psychology_analysis(item["text"]))
+            except asyncio.CancelledError:
+                logger.info("[ForwardResults] Task cancelled")
+            except Exception as e:
+                logger.error("[ForwardResults] Task error: %s", e)
 
         forward_task = asyncio.create_task(forward_results())
+        logger.info("[WebSocket] Starting main loop for session %s", session_id)
 
         while True:
-            raw = await websocket.receive()
+            try:
+                raw = await websocket.receive()
+                logger.debug("[WebSocket] Received raw message type: %s", list(raw.keys()))
+            except Exception as e:
+                logger.error("[WebSocket] Error receiving message: %s", e)
+                break
 
             if "bytes" in raw and raw["bytes"]:
                 audio_data = raw["bytes"]
+                audio_len = len(audio_data)
+                recv_time = time.monotonic()
+                logger.debug("[TIMING] recv audio: len=%d, time=%.3f", audio_len, recv_time)
 
+                # ASR 立即处理，完全独立于声纹识别
+                if not asr_started:
+                    try:
+                        asr.start(on_partial=on_partial, on_sentence=on_sentence, on_error=on_error)
+                        asr_started = True
+                        logger.info("[ASR] Started")
+                    except Exception as e:
+                        logger.error("[ASR] Failed to start: %s", e)
+                try:
+                    asr_send_start = time.monotonic()
+                    asr.send_audio_data(audio_data)
+                    asr_send_time = time.monotonic() - asr_send_start
+                    logger.debug("[TIMING] asr.send took %.3fms", asr_send_time * 1000)
+                except Exception as e:
+                    logger.error("[ASR] Failed to send: %s", e)
+
+                # 声纹识别持续运行，可以动态切换角色
                 if voiceprint_enabled:
                     recent_audio_chunks.append(audio_data)
-                    if len(recent_audio_chunks) >= VOICEPRINT_CHUNK_COUNT:
-                        combined_audio = b"".join(recent_audio_chunks)
-                        await check_voiceprint_and_switch(combined_audio)
-                        recent_audio_chunks = []
+                    voiceprint_accumulated_bytes += audio_len
 
-                if not asr_started:
-                    asr.start(on_partial=on_partial, on_sentence=on_sentence, on_error=on_error)
-                    asr_started = True
-                asr.send_audio_data(audio_data)
+                    # 累积够音频就触发识别
+                    if voiceprint_accumulated_bytes >= VOICEPRINT_MIN_BYTES:
+                        combined_audio = b"".join(recent_audio_chunks)
+                        logger.info("[VOICEPRINT] Trigger with %.1fs audio, current_role=%s",
+                                    voiceprint_accumulated_bytes / 32000, current_role)
+                        asyncio.create_task(run_voiceprint_identification(combined_audio))
+                        recent_audio_chunks = []
+                        voiceprint_accumulated_bytes = 0
+
                 continue
 
             if "text" not in raw or not raw["text"]:
@@ -382,23 +435,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
             action = msg.get("action", "")
 
-            if action == "enable_voiceprint":
-                voiceprint_enabled = True
-                reset_voiceprint_state()
-                await set_role("candidate", detected_by="voiceprint-default")
-                await websocket.send_json(
-                    {"type": "voiceprint_status", "enabled": True, "message": "声纹识别已启用"}
-                )
-
-            elif action == "disable_voiceprint":
-                voiceprint_enabled = False
-                reset_voiceprint_state()
-                logger.info("[Voiceprint] DISABLED by user, roles will stay static")
-                await websocket.send_json(
-                    {"type": "voiceprint_status", "enabled": False, "message": "声纹识别已禁用"}
-                )
-
-            elif action == "set_job_requirement":
+            if action == "set_job_requirement":
                 job_requirement = msg.get("job_requirement")
 
             elif action == "answer_complete":
@@ -464,7 +501,12 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                 break
 
     except WebSocketDisconnect:
-        pass
+        logger.debug("[WebSocket] Client disconnected normally")
+    except RuntimeError as e:
+        if "disconnect" in str(e).lower():
+            logger.error("[WebSocket] Connection closed: %s", e)
+        else:
+            logger.error("[WebSocket] Unexpected RuntimeError: %s", e)
     finally:
         if asr_started:
             asr.stop()

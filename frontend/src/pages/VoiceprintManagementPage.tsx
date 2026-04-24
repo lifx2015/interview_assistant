@@ -23,7 +23,7 @@ const FIXED_SESSION = 'global_interviewers';
 export const VoiceprintManagementPage: React.FC = () => {
   const [voiceprints, setVoiceprints] = useState<Voiceprint[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [currentProvider, setCurrentProvider] = useState<string>('simple');
+  const [currentProvider, setCurrentProvider] = useState<string>('mfcc');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingName, setRecordingName] = useState('');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -59,7 +59,7 @@ export const VoiceprintManagementPage: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setProviders(data.available_providers || []);
-        setCurrentProvider(data.current_provider || 'simple');
+        setCurrentProvider(data.current_provider || 'mfcc');
       }
     } catch (e) {
       console.error('Failed to fetch providers:', e);
@@ -285,7 +285,7 @@ export const VoiceprintManagementPage: React.FC = () => {
                     <div className={styles['card-actions']}>
                       {vp.provider && (
                         <span className={styles['provider-tag']}>
-                          {vp.provider === 'speechbrain' ? '🧠 SB' : '⚡ Simple'}
+                          MFCC
                         </span>
                       )}
                       <button

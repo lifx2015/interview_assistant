@@ -12,10 +12,11 @@ import type {
 
 export function useInterview() {
   const [status, setStatus] = useState<InterviewStatus>('idle');
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>('test-session-001');
   const [candidate, setCandidate] = useState<CandidateInfo | null>(null);
   const [currentRole, setCurrentRole] = useState<SpeakerRole>('interviewer');
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  const [pendingSentences, setPendingSentences] = useState<{text: string, sentence_id: number}[]>([]);
   const [currentPartial, setCurrentPartial] = useState('');
   const [interviewerText, setInterviewerText] = useState('');
   const [candidateText, setCandidateText] = useState('');
@@ -50,7 +51,39 @@ export function useInterview() {
       return;
     }
 
+    if (data.type === 'sentence_pending') {
+      // 句子待确认角色，加入 pending 队列
+      console.log('[useInterview] sentence_pending: text=%s', data.text?.slice(0, 50));
+      setPendingSentences(prev => [...prev, { text: data.text, sentence_id: data.sentence_id }]);
+      setCurrentPartial(''); // 清除 partial
+      return;
+    }
+
+    if (data.type === 'sentence_confirmed') {
+      // 句子角色确认，从 pending 移到 transcript
+      console.log('[useInterview] sentence_confirmed: role=%s text=%s', data.role, data.text?.slice(0, 50));
+      sentenceIdRef.current += 1;
+      const entry: TranscriptEntry = {
+        id: sentenceIdRef.current,
+        role: data.role || 'interviewer',
+        text: data.text,
+        isFinal: true,
+        timestamp: Date.now(),
+      };
+      setTranscript(prev => [...prev, entry]);
+      // 从 pending 中移除
+      setPendingSentences(prev => prev.filter(s => s.sentence_id !== data.sentence_id));
+      // 累积文本
+      if (entry.role === 'interviewer') {
+        setInterviewerText(prev => prev + data.text);
+      } else {
+        setCandidateText(prev => prev + data.text);
+      }
+      return;
+    }
+
     if (data.type === 'sentence') {
+      // 兼容旧消息格式（无声纹时直接确认）
       console.log('[useInterview] sentence: role=%s text=%s', data.role, data.text?.slice(0, 100));
       sentenceIdRef.current += 1;
       const entry: TranscriptEntry = {
@@ -332,6 +365,7 @@ export function useInterview() {
     candidate,
     currentRole,
     transcript,
+    pendingSentences,
     currentPartial,
     interviewerText,
     candidateText,

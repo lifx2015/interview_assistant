@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS voiceprints (
     name          TEXT NOT NULL,
     session_id    TEXT NOT NULL,
     audio_file    TEXT NOT NULL,
+    embedding     TEXT NOT NULL DEFAULT '[]',
     provider      TEXT NOT NULL DEFAULT 'unknown',
     sample_duration REAL NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -117,6 +118,19 @@ async def init_db() -> None:
     for sql in migrations:
         await db.execute(sql)
     if migrations:
+        await db.commit()
+
+    # Migration: add missing columns to voiceprints table
+    cursor = await db.execute("PRAGMA table_info(voiceprints)")
+    vp_columns = [row[1] for row in await cursor.fetchall()]
+
+    vp_migrations = []
+    if "embedding" not in vp_columns:
+        vp_migrations.append("ALTER TABLE voiceprints ADD COLUMN embedding TEXT NOT NULL DEFAULT '[]'")
+
+    for sql in vp_migrations:
+        await db.execute(sql)
+    if vp_migrations:
         await db.commit()
 
     # Migrate question banks from JSON files to SQLite
@@ -392,12 +406,13 @@ async def list_voiceprints(session_id: str | None = None) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-async def save_voiceprint(voice_id: str, role: str, name: str, session_id: str, audio_file: str, provider: str, sample_duration: float) -> None:
+async def save_voiceprint(voice_id: str, role: str, name: str, session_id: str, audio_file: str, embedding: list, provider: str, sample_duration: float) -> None:
     db = await get_db()
+    embedding_json = json.dumps(embedding)
     await db.execute(
-        """INSERT OR REPLACE INTO voiceprints (voice_id, role, name, session_id, audio_file, provider, sample_duration)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (voice_id, role, name, session_id, audio_file, provider, sample_duration),
+        """INSERT OR REPLACE INTO voiceprints (voice_id, role, name, session_id, audio_file, embedding, provider, sample_duration)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (voice_id, role, name, session_id, audio_file, embedding_json, provider, sample_duration),
     )
     await db.commit()
 

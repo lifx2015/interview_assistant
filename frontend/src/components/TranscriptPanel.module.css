@@ -77,3 +77,33 @@
   line-height: 1.5;
   color: var(--text-primary);
 }
+
+.pending-area {
+  padding: 12px;
+  background: rgba(255, 193, 7, 0.08);
+  border: 1px solid rgba(255, 193, 7, 0.2);
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+.pending-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.pending-icon {
+  animation: spin 1s linear infinite;
+}
+
+.pending-text {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

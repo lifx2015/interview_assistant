@@ -20,6 +20,7 @@ interface Props {
   status: InterviewStatus;
   currentRole: SpeakerRole;
   transcript: TranscriptEntry[];
+  pendingSentences: { text: string; sentence_id: number }[];
   currentPartial: string;
   isAnalyzing: boolean;
   isGeneratingQuestions: boolean;
@@ -56,13 +57,11 @@ interface Props {
   onReconnect: () => void;
   onSetJobRequirement: (jr: { name: string; description: string } | null) => void;
   voiceprintEnabled: boolean;
-  onToggleVoiceprint: () => void;
-  onManualRoleSwitch: (role: SpeakerRole) => void;
 }
 
 export const MainLayout: React.FC<Props> = ({
   candidate, sessionId, status, currentRole,
-  transcript, currentPartial, isAnalyzing,
+  transcript, pendingSentences, currentPartial, isAnalyzing,
   isGeneratingQuestions, questionsRaw, followUpRaw, lastFollowUpRaw,
   evaluationRaw, isEvaluating, psychologyRaw,
   noteContent, onNoteChange,
@@ -72,7 +71,7 @@ export const MainLayout: React.FC<Props> = ({
   bankQuestionGroups, onAddBankGroup, onRemoveBankGroup,
   wsStatus, wsError, audioError, appError,
   onClearAppError, onClearWsError, onReconnect, onSetJobRequirement,
-  voiceprintEnabled, onToggleVoiceprint, onManualRoleSwitch,
+  voiceprintEnabled,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
   const [rightWidth, setRightWidth] = useState(400);
@@ -193,45 +192,18 @@ export const MainLayout: React.FC<Props> = ({
             </svg>
             声纹管理
           </Link>
-          {sessionId && (status === 'recording' || status === 'paused') && (
-            <button
-              className={`${styles['btn-voiceprint-toggle']} ${voiceprintEnabled ? styles.active : ''}`}
-              onClick={onToggleVoiceprint}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              </svg>
-              {voiceprintEnabled ? '声纹识别已启用' : '启用声纹识别'}
-            </button>
-          )}
-          {sessionId && (status === 'recording' || status === 'paused') && (
-            <div className={styles['role-switch-group']}>
-              <button
-                className={`${styles['role-switch-btn']} ${currentRole === 'interviewer' ? styles.active : ''}`}
-                onClick={() => onManualRoleSwitch('interviewer')}
-              >
-                面试官
-              </button>
-              <button
-                className={`${styles['role-switch-btn']} ${currentRole === 'candidate' ? styles.active : ''}`}
-                onClick={() => onManualRoleSwitch('candidate')}
-              >
-                候选人
-              </button>
-            </div>
-          )}
-          <Link to="/job-requirement" className={styles['btn-job-requirement']}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-            </svg>
-            岗位管理
-          </Link>
-          {status === 'recording' && (
+          {status === 'recording' && voiceprintEnabled && (
             <div className={`${styles['rec-badge']} ${styles[currentRole]}`}>
               <span className={styles['rec-dot']} />
               {currentRole === 'interviewer' ? '面试官说话中' : '候选人回答中'}
+            </div>
+          )}
+          {status === 'recording' && !voiceprintEnabled && (
+            <div className={`${styles['rec-badge']} ${styles.warning}`}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              请先注册面试官声纹
             </div>
           )}
           {status === 'paused' && <div className={`${styles['rec-badge']} ${styles.paused}`}>已暂停</div>}
@@ -359,7 +331,7 @@ export const MainLayout: React.FC<Props> = ({
             <div className={styles['right-bottom-content']}>
               {rightTab === 'transcript' ? (
                 <div className={styles['transcript-tab-content']}>
-                  <TranscriptPanel status={status} transcript={transcript} currentPartial={currentPartial} currentRole={currentRole} />
+                  <TranscriptPanel status={status} transcript={transcript} pendingSentences={pendingSentences} currentPartial={currentPartial} currentRole={currentRole} />
                   <ControlBar status={status} isAnalyzing={isAnalyzing}
                     onStart={onStart} onPause={onPause} onResume={onResume}
                     onStop={onStop} onSubmitAnswer={onSubmitAnswer} disabled={!sessionId} />

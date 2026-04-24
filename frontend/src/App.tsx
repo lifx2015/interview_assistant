@@ -38,8 +38,7 @@ function App() {
     url: `ws://${window.location.hostname}:8000/ws/asr/${interview.sessionId || 'pending'}`,
     onMessage: handleWSMessage,
     onOpen: () => {
-      // Reset voiceprint state on new connection — backend defaults to disabled
-      setVoiceprintEnabled(false);
+      console.log('[App] WebSocket connected, waiting for voiceprint_status from backend');
     },
   });
 
@@ -122,20 +121,6 @@ function App() {
     }
   }, [ws.clearError, ws.connect, interview.sessionId]);
 
-  // P0-2: 声纹识别启用/禁用
-  const handleToggleVoiceprint = useCallback(() => {
-    if (ws.status !== 'connected') return;
-    const action = voiceprintEnabled ? 'disable_voiceprint' : 'enable_voiceprint';
-    console.log('[App] Toggle voiceprint:', action);
-    ws.send({ type: 'control', action });
-  }, [ws.status, ws.send, voiceprintEnabled]);
-
-  const handleManualRoleSwitch = useCallback((role: 'interviewer' | 'candidate') => {
-    if (ws.status !== 'connected') return;
-    console.log('[App] Manual role switch requested:', role);
-    ws.send({ type: 'control', action: 'switch_role', role });
-  }, [ws.status, ws.send]);
-
   return (
     <MainLayout
       candidate={interview.candidate}
@@ -143,6 +128,7 @@ function App() {
       status={interview.status}
       currentRole={interview.currentRole}
       transcript={interview.transcript}
+      pendingSentences={interview.pendingSentences}
       currentPartial={interview.currentPartial}
       isAnalyzing={interview.isAnalyzing}
       isGeneratingQuestions={interview.isGeneratingQuestions}
@@ -183,8 +169,6 @@ function App() {
         }
       }}
       voiceprintEnabled={voiceprintEnabled}
-      onToggleVoiceprint={handleToggleVoiceprint}
-      onManualRoleSwitch={handleManualRoleSwitch}
     />
   );
 }

@@ -11,7 +11,7 @@ router = APIRouter(prefix="/voiceprint", tags=["voiceprint"])
 
 
 class ProviderSwitchRequest(BaseModel):
-    provider: str  # "simple" or "speechbrain"
+    provider: str  # "mfcc"
 
 
 @router.get("/providers")
