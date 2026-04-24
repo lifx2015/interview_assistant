@@ -59,6 +59,9 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
     recent_audio_chunks = []    # 用于声纹识别的音频缓冲区
     VOICEPRINT_CHUNK_COUNT = 5  # 每5个音频块检测一次
 
+    # Job requirement (set from frontend sidebar)
+    job_requirement: dict | None = None
+
     def on_partial(text: str, sentence_id: int):
         asyncio.run_coroutine_threadsafe(
             result_queue.put({
@@ -247,6 +250,9 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                             "message": "声纹识别已禁用"
                         })
 
+                    elif action == "set_job_requirement":
+                        job_requirement = msg.get("job_requirement")
+
                     elif action == "answer_complete":
                         if asr_started:
                             asr.stop()
@@ -315,6 +321,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                             async for chunk in interview_evaluation_stream(
                                 resume_context=resume_ctx,
                                 qa_history=qa,
+                                job_requirement=job_requirement,
                             ):
                                 await websocket.send_json({
                                     "type": "evaluation_stream",

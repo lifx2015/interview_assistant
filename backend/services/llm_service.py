@@ -197,6 +197,7 @@ async def analyze_answer_stream(
 async def interview_evaluation_stream(
     resume_context: str,
     qa_history: list[dict],
+    job_requirement: dict | None = None,
 ):
     """Generate overall interview evaluation after the interview ends."""
     qa_text = ""
@@ -204,9 +205,19 @@ async def interview_evaluation_stream(
         qa_text += f"第{i}轮 - 面试官: {qa.get('question', '')}\n"
         qa_text += f"第{i}轮 - 候选人: {qa.get('answer', '')}\n\n"
 
+    jr_text = ""
+    if job_requirement:
+        jr_name = job_requirement.get("name", "")
+        jr_desc = job_requirement.get("description", "")
+        if jr_name:
+            jr_text = f"岗位：{jr_name}\n"
+        if jr_desc:
+            jr_text += f"岗位要求：{jr_desc}\n"
+
     prompt = STAR_ANALYSIS_PROMPT.format(
         resume_context=resume_context[:2000],
         qa_history=qa_text,
+        job_requirement=jr_text,
     )
     loop = asyncio.get_running_loop()
     gen = _stream_llm(prompt)

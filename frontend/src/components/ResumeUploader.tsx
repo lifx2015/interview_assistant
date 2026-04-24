@@ -45,21 +45,60 @@ export const ResumeUploader: React.FC<Props> = ({ onUploadSuccess }) => {
 
   return (
     <div
-      className={`${styles['resume-uploader']} ${isDragging ? styles.dragging : ''}`}
+      className={`${styles['resume-uploader']} ${isDragging ? styles.dragging : ''} ${isUploading ? styles.uploading : ''}`}
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="1.5" opacity="0.6">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="12" y1="18" x2="12" y2="12" />
-        <polyline points="9 15 12 12 15 15" />
-      </svg>
-      <p className={styles['upload-text']}>{isUploading ? '解析中...' : '拖拽简历至此或点击上传'}</p>
-      <p className={styles['upload-hint']}>PDF / Word / 图片</p>
-      <input type="file" accept=".pdf,.docx,.doc,.png,.jpg,.jpeg" onChange={handleChange} style={{ display: 'none' }} id="resume-input" />
-      <label htmlFor="resume-input" className={`btn btn-primary ${styles['upload-btn']}`}>选择文件</label>
+      {isUploading ? (
+        <div className={styles['upload-animation']}>
+          {/* Scanning ring */}
+          <div className={styles['scan-ring']}>
+            <div className={styles['scan-ring-inner']} />
+            <div className={styles['scan-ring-outer']} />
+            <svg className={styles['scan-icon']} width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="1.5">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+          </div>
+          {/* Data streams */}
+          <div className={styles['data-streams']}>
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className={styles['data-stream']} style={{ animationDelay: `${i * 0.3}s` }}>
+                {[...Array(8)].map((_, j) => (
+                  <span key={j} className={styles['data-bit']} style={{ animationDelay: `${(i * 0.3 + j * 0.08)}s` }} />
+                ))}
+              </div>
+            ))}
+          </div>
+          {/* Progress text */}
+          <div className={styles['upload-progress']}>
+            <span className={styles['progress-label']}>AI 简历解析引擎启动</span>
+            <div className={styles['progress-bar']}>
+              <div className={styles['progress-fill']} />
+              <div className={styles['progress-glow']} />
+            </div>
+            <div className={styles['progress-steps']}>
+              <span className={styles['step-text']} style={{ animationDelay: '0.5s' }}>文档识别中</span>
+              <span className={styles['step-text']} style={{ animationDelay: '1.5s' }}>信息提取中</span>
+              <span className={styles['step-text']} style={{ animationDelay: '2.5s' }}>风险评估中</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="1.5" opacity="0.6">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="12" y1="18" x2="12" y2="12" />
+            <polyline points="9 15 12 12 15 15" />
+          </svg>
+          <p className={styles['upload-text']}>拖拽简历至此或点击上传</p>
+          <p className={styles['upload-hint']}>PDF / Word / 图片</p>
+          <input type="file" accept=".pdf,.docx,.doc,.png,.jpg,.jpeg" onChange={handleChange} style={{ display: 'none' }} id="resume-input" />
+          <label htmlFor="resume-input" className={`btn btn-primary ${styles['upload-btn']}`}>选择文件</label>
+        </>
+      )}
       {error && <p className={styles['upload-error']}>{error}</p>}
     </div>
   );

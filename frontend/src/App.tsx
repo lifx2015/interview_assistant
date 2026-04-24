@@ -141,6 +141,11 @@ function App() {
       onClearAppError={interview.clearAppError}
       onClearWsError={ws.clearError}
       onReconnect={handleReconnect}
+      onSetJobRequirement={(jr) => {
+        if (ws.status === 'connected') {
+          ws.send({ type: 'control', action: 'set_job_requirement', job_requirement: jr });
+        }
+      }}
     />
   );
 }

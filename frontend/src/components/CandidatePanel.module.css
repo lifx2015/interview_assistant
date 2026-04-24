@@ -1,7 +1,8 @@
 .candidate-panel {
   padding: 16px;
   overflow-y: auto;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .candidate-header {
@@ -110,8 +111,26 @@
   align-items: flex-start;
   gap: 8px;
   font-size: 12px;
+  padding: 6px 0;
+  line-height: 1.5;
+}
+
+.risk-category {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(255, 170, 0, 0.15);
   color: var(--accent-amber);
-  padding: 5px 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.risk-desc {
+  color: var(--text-secondary);
+  font-size: 12px;
   line-height: 1.5;
 }
 

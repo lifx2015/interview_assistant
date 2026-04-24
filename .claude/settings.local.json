@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc *)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(python -c \"from backend.routers import job_requirement; print\\('OK:', job_requirement.router.prefix\\)\")",
+      "Bash(python -c \"from backend.routers.ws_asr import router; print\\('OK'\\)\")",
+      "Bash(python -c \"from backend.services.llm_service import interview_evaluation_stream; print\\('OK'\\)\")"
     ]
   }
 }

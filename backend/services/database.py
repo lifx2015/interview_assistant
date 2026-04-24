@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS voiceprints (
 )
 """
 
+CREATE_JOB_REQUIREMENTS_TABLE = """
+CREATE TABLE IF NOT EXISTS job_requirements (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
 
 def _get_db_path() -> str:
     path = settings.database_path
@@ -84,6 +94,7 @@ async def init_db() -> None:
     await db.execute(CREATE_QUESTION_BANKS_TABLE)
     await db.execute(CREATE_QUESTIONS_TABLE)
     await db.execute(CREATE_VOICEPRINTS_TABLE)
+    await db.execute(CREATE_JOB_REQUIREMENTS_TABLE)
     await db.commit()
 
     # Migration: add missing columns to interviews table
@@ -398,3 +409,53 @@ async def clear_voiceprints_db(session_id: str) -> int:
     cursor = await db.execute("DELETE FROM voiceprints WHERE session_id = ?", (session_id,))
     await db.commit()
     return cursor.rowcount
+
+
+# ── Job Requirement DB operations ──
+
+async def list_job_requirements() -> list[dict]:
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT * FROM job_requirements ORDER BY updated_at DESC"
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_job_requirement(jr_id: str) -> dict | None:
+    db = await get_db()
+    rows = await db.execute_fetchall("SELECT * FROM job_requirements WHERE id = ?", (jr_id,))
+    if not rows:
+        return None
+    return dict(rows[0])
+
+
+async def create_job_requirement(jr_id: str, name: str, description: str = "") -> dict:
+    db = await get_db()
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    await db.execute(
+        "INSERT INTO job_requirements (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (jr_id, name, description, now, now),
+    )
+    await db.commit()
+    return {"id": jr_id, "name": name, "description": description, "created_at": now, "updated_at": now}
+
+
+async def update_job_requirement(jr_id: str, name: str | None = None, description: str | None = None) -> dict | None:
+    db = await get_db()
+    existing = await get_job_requirement(jr_id)
+    if not existing:
+        return None
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    if name is not None:
+        await db.execute("UPDATE job_requirements SET name = ?, updated_at = ? WHERE id = ?", (name, now, jr_id))
+    if description is not None:
+        await db.execute("UPDATE job_requirements SET description = ?, updated_at = ? WHERE id = ?", (description, now, jr_id))
+    await db.commit()
+    return await get_job_requirement(jr_id)
+
+
+async def delete_job_requirement(jr_id: str) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM job_requirements WHERE id = ?", (jr_id,))
+    await db.commit()
+    return cursor.rowcount > 0

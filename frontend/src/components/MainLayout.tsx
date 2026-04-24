@@ -1,6 +1,6 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import styles from './MainLayout.module.css';
-import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem, BankQuestionGroup } from '../types';
+import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem, BankQuestionGroup, JobRequirement } from '../types';
 import type { WSStatus } from '../hooks/useWebSocket';
 import { ResumeUploader } from './ResumeUploader';
 import { CandidatePanel } from './CandidatePanel';
@@ -53,6 +53,7 @@ interface Props {
   onClearAppError: () => void;
   onClearWsError: () => void;
   onReconnect: () => void;
+  onSetJobRequirement: (jr: { name: string; description: string } | null) => void;
 }
 
 export const MainLayout: React.FC<Props> = ({
@@ -66,15 +67,18 @@ export const MainLayout: React.FC<Props> = ({
   onSave, isSaving, savedInterviews, onLoadInterview, onFetchList,
   bankQuestionGroups, onAddBankGroup, onRemoveBankGroup,
   wsStatus, wsError, audioError, appError,
-  onClearAppError, onClearWsError, onReconnect,
+  onClearAppError, onClearWsError, onReconnect, onSetJobRequirement,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
   const [rightWidth, setRightWidth] = useState(400);
-  const [noteHeight, setNoteHeight] = useState(200);
+  const [noteHeight, setNoteHeight] = useState(550);
   const [isDragging, setIsDragging] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [rightTab, setRightTab] = useState<'analysis' | 'transcript'>('transcript');
+  const [jobRequirements, setJobRequirements] = useState<JobRequirement[]>([]);
+  const [selectedJobRequirementId, setSelectedJobRequirementId] = useState<string>('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const prevJobRequirementIdRef = useRef<string>('');
   const centerRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<'left' | 'right' | 'note' | null>(null);
   const dragOffset = useRef(0);
@@ -118,6 +122,27 @@ export const MainLayout: React.FC<Props> = ({
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   }, [noteHeight, leftWidth, rightWidth]);
+
+  useEffect(() => {
+    fetch('/api/job-requirement/list')
+      .then(res => res.json())
+      .then(data => setJobRequirements(data.requirements || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (selectedJobRequirementId && selectedJobRequirementId !== prevJobRequirementIdRef.current) {
+      const jr = jobRequirements.find(j => j.id === selectedJobRequirementId);
+      if (jr) {
+        onSetJobRequirement({ name: jr.name, description: jr.description });
+      }
+    } else if (!selectedJobRequirementId && prevJobRequirementIdRef.current) {
+      onSetJobRequirement(null);
+    }
+    prevJobRequirementIdRef.current = selectedJobRequirementId;
+  }, [selectedJobRequirementId, jobRequirements, onSetJobRequirement]);
+
+  const selectedJobRequirement = jobRequirements.find(jr => jr.id === selectedJobRequirementId) || null;
 
   return (
     <div className={styles['main-layout']}>
@@ -163,6 +188,13 @@ export const MainLayout: React.FC<Props> = ({
             </svg>
             声纹管理
           </Link>
+          <Link to="/job-requirement" className={styles['btn-job-requirement']}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+            </svg>
+            岗位管理
+          </Link>
           {status === 'recording' && (
             <div className={`${styles['rec-badge']} ${styles[currentRole]}`}>
               <span className={styles['rec-dot']} />
@@ -201,6 +233,30 @@ export const MainLayout: React.FC<Props> = ({
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
               </svg>
               <p>上传简历后显示候选人信息</p>
+            </div>
+          )}
+          {candidate && (
+            <div className={styles['job-requirement-section']}>
+              <div className={styles['jr-section-label']}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)" strokeWidth="2">
+                  <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                  <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                </svg>
+                岗位要求
+              </div>
+              <select
+                className={styles['jr-select']}
+                value={selectedJobRequirementId}
+                onChange={e => setSelectedJobRequirementId(e.target.value)}
+              >
+                <option value="">-- 选择岗位 --</option>
+                {jobRequirements.map(jr => (
+                  <option key={jr.id} value={jr.id}>{jr.name}</option>
+                ))}
+              </select>
+              {selectedJobRequirement?.description && (
+                <div className={styles['jr-description']}>{selectedJobRequirement.description}</div>
+              )}
             </div>
           )}
         </aside>
