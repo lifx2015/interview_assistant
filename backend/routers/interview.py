@@ -28,6 +28,7 @@ async def save_interview(req: SaveInterviewRequest):
         "qa_history": req.qa_history,
         "transcript": req.transcript,
         "analysis_raw": req.analysis_raw,
+        "evaluation_raw": req.evaluation_raw,
         "questions_raw": req.questions_raw,
         "notes": req.notes,
         "pdf_content": pdf_content,

@@ -5,7 +5,11 @@
       "Bash(npx vite *)",
       "Bash(python -c \"from backend.routers import job_requirement; print\\('OK:', job_requirement.router.prefix\\)\")",
       "Bash(python -c \"from backend.routers.ws_asr import router; print\\('OK'\\)\")",
-      "Bash(python -c \"from backend.services.llm_service import interview_evaluation_stream; print\\('OK'\\)\")"
+      "Bash(python -c \"from backend.services.llm_service import interview_evaluation_stream; print\\('OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('routers/ws_asr.py', doraise=True\\); print\\('ws_asr.py OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('routers/job_requirement.py', doraise=True\\); py_compile.compile\\('services/database.py', doraise=True\\); py_compile.compile\\('main.py', doraise=True\\); print\\('All OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('routers/ws_asr.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('routers/ws_asr.py', doraise=True\\); py_compile.compile\\('routers/interview.py', doraise=True\\); py_compile.compile\\('services/database.py', doraise=True\\); py_compile.compile\\('models/schemas.py', doraise=True\\); print\\('All OK'\\)\")"
     ]
   }
 }

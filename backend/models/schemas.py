@@ -66,6 +66,7 @@ class SaveInterviewRequest(BaseModel):
     qa_history: list[dict] = []
     transcript: list[dict] = []
     analysis_raw: str = ""
+    evaluation_raw: str = ""
     questions_raw: str = ""
     notes: str = ""
 

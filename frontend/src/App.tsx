@@ -13,6 +13,7 @@ function App() {
   const audioStartedRef = useRef(false);
   const [noteContent, setNoteContent] = useState('');
   const prevStatusRef = useRef<InterviewStatus>('idle');
+  const [voiceprintEnabled, setVoiceprintEnabled] = useState(false);
 
   const handleWSMessage = useCallback((data: any) => {
     if (data.type === 'error') {
@@ -22,6 +23,8 @@ function App() {
         console.log('[Voiceprint] Auto-switched role to:', data.role, 'confidence:', data.confidence);
       }
       interview.switchRole(data.role);
+    } else if (data.type === 'voiceprint_status') {
+      setVoiceprintEnabled(data.enabled);
     } else {
       interview.handleASRResult(data);
     }
@@ -30,6 +33,10 @@ function App() {
   const ws = useWebSocket({
     url: `ws://${window.location.hostname}:8000/ws/asr/${interview.sessionId || 'pending'}`,
     onMessage: handleWSMessage,
+    onOpen: () => {
+      // Reset voiceprint state on new connection — backend defaults to disabled
+      setVoiceprintEnabled(false);
+    },
   });
 
   useEffect(() => {
@@ -51,14 +58,24 @@ function App() {
 
   const audio = useAudioCapture({ onAudioData: handleAudioData });
 
+  // P0-3: 等待 WebSocket 真正连接后再开始录音
+  const [waitingForWs, setWaitingForWs] = useState(false);
+
+  useEffect(() => {
+    if (waitingForWs && ws.status === 'connected') {
+      setWaitingForWs(false);
+      audio.start().then(() => {
+        audioStartedRef.current = true;
+        interview.startInterview();
+      });
+    }
+  }, [waitingForWs, ws.status, audio, interview.startInterview]);
+
   const handleStart = useCallback(async () => {
     if (!interview.sessionId) return;
     ws.connect();
-    await new Promise((r) => setTimeout(r, 300));
-    await audio.start();
-    audioStartedRef.current = true;
-    interview.startInterview();
-  }, [interview.sessionId, ws.connect, audio.start, interview.startInterview]);
+    setWaitingForWs(true);
+  }, [interview.sessionId, ws.connect]);
 
   const handlePause = useCallback(() => {
     audio.pause();
@@ -101,6 +118,18 @@ function App() {
     }
   }, [ws.clearError, ws.connect, interview.sessionId]);
 
+  // P0-2: 声纹识别启用/禁用
+  const handleToggleVoiceprint = useCallback(() => {
+    if (ws.status !== 'connected') return;
+    const action = voiceprintEnabled ? 'disable_voiceprint' : 'enable_voiceprint';
+    ws.send({ type: 'control', action });
+  }, [ws.status, ws.send, voiceprintEnabled]);
+
+  const handleManualRoleSwitch = useCallback((role: 'interviewer' | 'candidate') => {
+    if (ws.status !== 'connected') return;
+    ws.send({ type: 'control', action: 'switch_role', role });
+  }, [ws.status, ws.send]);
+
   return (
     <MainLayout
       candidate={interview.candidate}
@@ -109,11 +138,11 @@ function App() {
       currentRole={interview.currentRole}
       transcript={interview.transcript}
       currentPartial={interview.currentPartial}
-      analysisRaw={interview.analysisRaw}
       isAnalyzing={interview.isAnalyzing}
       isGeneratingQuestions={interview.isGeneratingQuestions}
       questionsRaw={interview.questionsRaw}
       followUpRaw={interview.followUpRaw}
+      lastFollowUpRaw={interview.lastFollowUpRaw}
       evaluationRaw={interview.evaluationRaw}
       isEvaluating={interview.isEvaluating}
       noteContent={noteContent}
@@ -146,6 +175,9 @@ function App() {
           ws.send({ type: 'control', action: 'set_job_requirement', job_requirement: jr });
         }
       }}
+      voiceprintEnabled={voiceprintEnabled}
+      onToggleVoiceprint={handleToggleVoiceprint}
+      onManualRoleSwitch={handleManualRoleSwitch}
     />
   );
 }

@@ -59,7 +59,8 @@ interview_assistant/
 │       │   ├── PDFViewer.tsx       # PDF 内嵌查看
 │       │   ├── NotePanel.tsx       # 面试笔记编辑器
 │       │   ├── InterviewListPanel.tsx # 已保存面试列表
-│       │   ├── MarkdownRenderer.tsx   # Markdown 渲染
+│       │   ├
+── MarkdownRenderer.tsx   # Markdown 渲染
 │       │   └── VoiceprintPanel.tsx    # (未使用，被独立页面替代)
 │       ├── pages/
 │       │   ├── VoiceprintManagementPage.tsx # 声纹管理页

@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS interviews (
     qa_history     TEXT NOT NULL DEFAULT '[]',
     transcript     TEXT NOT NULL DEFAULT '[]',
     analysis_raw   TEXT NOT NULL DEFAULT '',
+    evaluation_raw TEXT NOT NULL DEFAULT '',
     questions_raw  TEXT NOT NULL DEFAULT '',
     notes          TEXT NOT NULL DEFAULT '',
     pdf_content    BLOB,
@@ -110,6 +111,8 @@ async def init_db() -> None:
         migrations.append("ALTER TABLE interviews ADD COLUMN pdf_content BLOB")
     if "pdf_filename" not in columns:
         migrations.append("ALTER TABLE interviews ADD COLUMN pdf_filename TEXT")
+    if "evaluation_raw" not in columns:
+        migrations.append("ALTER TABLE interviews ADD COLUMN evaluation_raw TEXT NOT NULL DEFAULT ''")
 
     for sql in migrations:
         await db.execute(sql)
@@ -205,9 +208,9 @@ async def save_interview(data: dict) -> None:
         await db.execute(
             """INSERT OR REPLACE INTO interviews
                (session_id, candidate, candidate_name, resume_text, qa_history,
-                transcript, analysis_raw, questions_raw, notes,
+                transcript, analysis_raw, evaluation_raw, questions_raw, notes,
                 pdf_content, pdf_filename, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data["session_id"],
                 candidate_json,
@@ -216,6 +219,7 @@ async def save_interview(data: dict) -> None:
                 qa_history_json,
                 transcript_json,
                 data.get("analysis_raw", ""),
+                data.get("evaluation_raw", ""),
                 data.get("questions_raw", ""),
                 data.get("notes", ""),
                 data.get("pdf_content"),
@@ -227,9 +231,9 @@ async def save_interview(data: dict) -> None:
         await db.execute(
             """INSERT INTO interviews
                (session_id, candidate, candidate_name, resume_text, qa_history,
-                transcript, analysis_raw, questions_raw, notes,
+                transcript, analysis_raw, evaluation_raw, questions_raw, notes,
                 pdf_content, pdf_filename)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data["session_id"],
                 candidate_json,
@@ -238,6 +242,7 @@ async def save_interview(data: dict) -> None:
                 qa_history_json,
                 transcript_json,
                 data.get("analysis_raw", ""),
+                data.get("evaluation_raw", ""),
                 data.get("questions_raw", ""),
                 data.get("notes", ""),
                 data.get("pdf_content"),

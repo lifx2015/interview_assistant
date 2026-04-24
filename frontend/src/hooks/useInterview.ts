@@ -19,7 +19,6 @@ export function useInterview() {
   const [currentPartial, setCurrentPartial] = useState('');
   const [interviewerText, setInterviewerText] = useState('');
   const [candidateText, setCandidateText] = useState('');
-  const [analysisRaw, setAnalysisRaw] = useState('');
   const [qaHistory, setQaHistory] = useState<QARecord[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
@@ -31,8 +30,8 @@ export function useInterview() {
   const [followUpRaw, setFollowUpRaw] = useState('');
   const [evaluationRaw, setEvaluationRaw] = useState('');
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [lastFollowUpRaw, setLastFollowUpRaw] = useState('');
 
-  // 按题库分组的题目
   const [bankQuestionGroups, setBankQuestionGroups] = useState<BankQuestionGroup[]>([]);
 
   const sentenceIdRef = useRef(0);
@@ -46,7 +45,10 @@ export function useInterview() {
     console.log('[useInterview] handleASRResult:', data);
     if (data.type === 'partial') {
       setCurrentPartial(data.text);
-    } else if (data.type === 'sentence') {
+      return;
+    }
+
+    if (data.type === 'sentence') {
       sentenceIdRef.current += 1;
       const entry: TranscriptEntry = {
         id: sentenceIdRef.current,
@@ -62,37 +64,73 @@ export function useInterview() {
         setCandidateText((prev) => prev + data.text);
       }
       setCurrentPartial('');
-    } else if (data.type === 'role_switched') {
+      return;
+    }
+
+    if (data.type === 'role_switched') {
       setCurrentRole(data.role);
-    } else if (data.type === 'follow_up_stream') {
+      return;
+    }
+
+    if (data.type === 'follow_up_stream') {
+      setIsAnalyzing(true);
       setFollowUpRaw((prev: string) => prev + data.data);
-    } else if (data.type === 'follow_up_complete') {
-      // Keep followUpRaw as-is
-    } else if (data.type === 'follow_up_clear') {
-      setFollowUpRaw('');
-    } else if (data.type === 'answer_complete_ack') {
+      return;
+    }
+
+    if (data.type === 'follow_up_complete') {
+      setIsAnalyzing(false);
+      return;
+    }
+
+    if (data.type === 'follow_up_clear') {
+      setIsAnalyzing(false);
+      setFollowUpRaw((prev) => {
+        if (prev) setLastFollowUpRaw(prev);
+        return '';
+      });
+      return;
+    }
+
+    if (data.type === 'answer_complete_ack') {
+      if (data.question && data.answer) {
+        setQaHistory((prev) => [...prev, { question: data.question, answer: data.answer }]);
+      }
       setIsAnalyzing(false);
       setStatus('idle');
-      setFollowUpRaw('');
-    } else if (data.type === 'evaluation_start') {
+      return;
+    }
+
+    if (data.type === 'evaluation_start') {
       setIsEvaluating(true);
       setEvaluationRaw('');
-    } else if (data.type === 'evaluation_stream') {
+      return;
+    }
+
+    if (data.type === 'evaluation_stream') {
       setEvaluationRaw((prev: string) => prev + data.data);
-    } else if (data.type === 'error') {
+      return;
+    }
+
+    if (data.type === 'error') {
+      setIsAnalyzing(false);
       setAppError(data.data || '未知错误');
-    } else if (data.type === 'evaluation_complete') {
+      return;
+    }
+
+    if (data.type === 'evaluation_complete') {
       setIsEvaluating(false);
       setStatus('idle');
-      setFollowUpRaw('');
     }
   }, []);
 
   const switchRole = useCallback((role: SpeakerRole) => {
     setCurrentRole(role);
-    // Clear follow-up when switching to candidate (new answer starts)
     if (role === 'candidate') {
-      setFollowUpRaw('');
+      setFollowUpRaw((prev) => {
+        if (prev) setLastFollowUpRaw(prev);
+        return '';
+      });
     }
   }, []);
 
@@ -102,8 +140,9 @@ export function useInterview() {
     setCurrentPartial('');
     setInterviewerText('');
     setCandidateText('');
-    setAnalysisRaw('');
+    setQaHistory([]);
     setFollowUpRaw('');
+    setLastFollowUpRaw('');
     setEvaluationRaw('');
     setIsAnalyzing(false);
     setIsEvaluating(false);
@@ -120,14 +159,20 @@ export function useInterview() {
   const stopInterview = useCallback(() => {
     setStatus('evaluating');
     setIsAnalyzing(false);
-    setFollowUpRaw('');
+    setFollowUpRaw((prev) => {
+      if (prev) setLastFollowUpRaw(prev);
+      return '';
+    });
   }, []);
 
   const submitAnswer = useCallback(() => {
-    setFollowUpRaw('');
+    setIsAnalyzing(false);
+    setFollowUpRaw((prev) => {
+      if (prev) setLastFollowUpRaw(prev);
+      return '';
+    });
   }, []);
 
-  // Independent of WebSocket — uses HTTP SSE
   const generateQuestions = useCallback(async () => {
     if (!sessionId) return;
     setIsGeneratingQuestions(true);
@@ -136,11 +181,8 @@ export function useInterview() {
 
     try {
       const url = `/api/interview/${sessionId}/generate-questions`;
-      console.log('[generateQuestions] fetching:', url);
       const res = await fetch(url);
-      console.log('[generateQuestions] response status:', res.status, 'ok:', res.ok, 'has body:', !!res.body);
       if (!res.ok || !res.body) {
-        console.error('[generateQuestions] fetch failed, status:', res.status);
         setAppError(`题目生成失败 (HTTP ${res.status})`);
         setIsGeneratingQuestions(false);
         return;
@@ -149,19 +191,13 @@ export function useInterview() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let chunkCount = 0;
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) {
-          console.log('[generateQuestions] stream done, total chunks:', chunkCount);
-          break;
-        }
+        if (done) break;
 
-        chunkCount++;
         buffer += decoder.decode(value, { stream: true });
 
-        // SSE: process complete messages (ending with \n\n)
         let pos;
         while ((pos = buffer.indexOf('\n\n')) !== -1) {
           const message = buffer.slice(0, pos);
@@ -170,7 +206,6 @@ export function useInterview() {
           if (message.startsWith('data: ')) {
             const data = message.slice(6);
             if (data === '[DONE]') continue;
-            // SSE multi-line format: "data: line1\ndata: line2" -> join with \n
             const content = data.split('\ndata: ').join('\n');
             setQuestionsRaw((prev) => prev + content);
           }
@@ -201,7 +236,8 @@ export function useInterview() {
           candidate,
           qa_history: qaHistory,
           transcript,
-          analysis_raw: analysisRaw,
+          analysis_raw: '',
+          evaluation_raw: evaluationRaw,
           questions_raw: questionsRaw,
           notes,
         }),
@@ -212,7 +248,7 @@ export function useInterview() {
     } finally {
       setIsSaving(false);
     }
-  }, [sessionId, candidate, qaHistory, transcript, analysisRaw, questionsRaw]);
+  }, [sessionId, candidate, qaHistory, transcript, questionsRaw, evaluationRaw]);
 
   const fetchInterviewList = useCallback(async () => {
     try {
@@ -236,7 +272,6 @@ export function useInterview() {
       setCandidate(data.candidate);
       setQaHistory(data.qa_history || []);
       setTranscript(data.transcript || []);
-      setAnalysisRaw(data.analysis_raw || '');
       setQuestionsRaw(data.questions_raw || '');
       setStatus('idle');
       setCurrentRole('interviewer');
@@ -244,8 +279,10 @@ export function useInterview() {
       setInterviewerText('');
       setCandidateText('');
       setFollowUpRaw('');
+      setLastFollowUpRaw('');
       setEvaluationRaw(data.evaluation_raw || '');
       setIsEvaluating(false);
+      setIsAnalyzing(false);
 
       return data.notes || '';
     } catch (e) {
@@ -254,13 +291,10 @@ export function useInterview() {
     }
   }, []);
 
-  // 添加题库分组
   const addBankGroup = useCallback((group: BankQuestionGroup) => {
     setBankQuestionGroups((prev) => {
-      // 检查是否已存在该题库
-      const existingIndex = prev.findIndex(g => g.bankId === group.bankId);
+      const existingIndex = prev.findIndex((g) => g.bankId === group.bankId);
       if (existingIndex >= 0) {
-        // 合并题目（去重）
         const existing = prev[existingIndex];
         const existingIds = new Set(existing.questions.map((q: Question) => q.id));
         const newQuestions = group.questions.filter((q: Question) => !existingIds.has(q.id));
@@ -275,12 +309,10 @@ export function useInterview() {
     });
   }, []);
 
-  // 移除题库分组
   const removeBankGroup = useCallback((bankId: string) => {
-    setBankQuestionGroups((prev) => prev.filter(g => g.bankId !== bankId));
+    setBankQuestionGroups((prev) => prev.filter((g) => g.bankId !== bankId));
   }, []);
 
-  // 清除所有题库
   const clearBankGroups = useCallback(() => {
     setBankQuestionGroups([]);
   }, []);
@@ -298,7 +330,6 @@ export function useInterview() {
     currentPartial,
     interviewerText,
     candidateText,
-    analysisRaw,
     qaHistory,
     isAnalyzing,
     isGeneratingQuestions,
@@ -319,6 +350,7 @@ export function useInterview() {
     loadInterview,
     setWsSend,
     followUpRaw,
+    lastFollowUpRaw,
     evaluationRaw,
     isEvaluating,
     bankQuestionGroups,

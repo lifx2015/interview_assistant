@@ -13,6 +13,7 @@ interface Props {
   isGenerating: boolean;
   questionsRaw: string;
   followUpRaw: string;
+  lastFollowUpRaw: string;
   onGenerate: () => void;
   bankQuestionGroups?: BankQuestionGroup[];
   onAddBankGroup?: (group: BankQuestionGroup) => void;
@@ -23,6 +24,7 @@ export const QuestionPanel: React.FC<Props> = ({
   isGenerating,
   questionsRaw,
   followUpRaw,
+  lastFollowUpRaw,
   onGenerate,
   bankQuestionGroups = [],
   onAddBankGroup,
@@ -36,7 +38,16 @@ export const QuestionPanel: React.FC<Props> = ({
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<Record<string, Set<string>>>({});
 
   const hasFollowUp = followUpRaw.length > 0;
+  const hasLastFollowUp = lastFollowUpRaw.length > 0;
   const hasQuestions = questionsRaw.length > 0;
+
+  // P1-2: Split follow-up content into questions and risk sections
+  const splitFollowUp = (raw: string): { followUp: string; risk: string } => {
+    const sep = '---FOLLOWUP---';
+    const idx = raw.indexOf(sep);
+    if (idx === -1) return { followUp: raw, risk: '' };
+    return { followUp: raw.slice(0, idx).trim(), risk: raw.slice(idx + sep.length).trim() };
+  };
 
   useEffect(() => {
     if (bankQuestionGroups.length > 0) {
@@ -158,6 +169,7 @@ export const QuestionPanel: React.FC<Props> = ({
         <button className={`${styles.tab} ${activeTab === 'followup' ? styles.active : ''}`} onClick={() => setActiveTab('followup')}>
           实时追问
           {hasFollowUp && <span className={styles['tab-badge']}>NEW</span>}
+          {!hasFollowUp && hasLastFollowUp && <span className={styles['tab-badge']} style={{ background: 'rgba(255,170,0,0.15)', color: 'var(--accent-amber)' }}>历史</span>}
         </button>
         {bankQuestionGroups.map(group => (
           <button
@@ -193,9 +205,64 @@ export const QuestionPanel: React.FC<Props> = ({
                   <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent-cyan)', animation: 'pulse-dot 1s ease-in-out infinite' }} />
                   基于候选人回答实时生成
                 </div>
-                <div className={styles['follow-up-content']}>
-                  <MarkdownRenderer content={followUpRaw} isStreaming={true} />
+                {(() => {
+                  const { followUp, risk } = splitFollowUp(followUpRaw);
+                  return (
+                    <>
+                      {followUp && (
+                        <div className={styles['follow-up-block']}>
+                          <div className={styles['follow-up-block-label']}>追问建议</div>
+                          <div className={styles['follow-up-content']}>
+                            <MarkdownRenderer content={followUp} isStreaming={true} />
+                          </div>
+                        </div>
+                      )}
+                      {risk && (
+                        <div className={styles['follow-up-block']}>
+                          <div className={`${styles['follow-up-block-label']} ${styles['risk-label']}`}>风险提示</div>
+                          <div className={styles['follow-up-content']}>
+                            <MarkdownRenderer content={risk} isStreaming={true} />
+                          </div>
+                        </div>
+                      )}
+                      {!followUp && !risk && (
+                        <div className={styles['follow-up-content']}>
+                          <MarkdownRenderer content={followUpRaw} isStreaming={true} />
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            ) : lastFollowUpRaw ? (
+              <div className={styles['follow-up-section']}>
+                <div className={styles['follow-up-header']} style={{ opacity: 0.6 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent-amber)' }} />
+                  上一轮追问建议
                 </div>
+                {(() => {
+                  const { followUp, risk } = splitFollowUp(lastFollowUpRaw);
+                  return (
+                    <>
+                      {followUp && (
+                        <div className={styles['follow-up-block']}>
+                          <div className={styles['follow-up-block-label']}>追问建议</div>
+                          <div className={styles['follow-up-content']}>
+                            <MarkdownRenderer content={followUp} isStreaming={false} />
+                          </div>
+                        </div>
+                      )}
+                      {risk && (
+                        <div className={styles['follow-up-block']}>
+                          <div className={`${styles['follow-up-block-label']} ${styles['risk-label']}`}>风险提示</div>
+                          <div className={styles['follow-up-content']}>
+                            <MarkdownRenderer content={risk} isStreaming={false} />
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <div className={styles['empty-state']}>

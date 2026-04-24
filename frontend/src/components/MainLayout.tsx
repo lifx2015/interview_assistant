@@ -21,11 +21,11 @@ interface Props {
   currentRole: SpeakerRole;
   transcript: TranscriptEntry[];
   currentPartial: string;
-  analysisRaw: string;
   isAnalyzing: boolean;
   isGeneratingQuestions: boolean;
   questionsRaw: string;
   followUpRaw: string;
+  lastFollowUpRaw: string;
   evaluationRaw: string;
   isEvaluating: boolean;
   noteContent: string;
@@ -54,12 +54,15 @@ interface Props {
   onClearWsError: () => void;
   onReconnect: () => void;
   onSetJobRequirement: (jr: { name: string; description: string } | null) => void;
+  voiceprintEnabled: boolean;
+  onToggleVoiceprint: () => void;
+  onManualRoleSwitch: (role: SpeakerRole) => void;
 }
 
 export const MainLayout: React.FC<Props> = ({
   candidate, sessionId, status, currentRole,
   transcript, currentPartial, isAnalyzing,
-  isGeneratingQuestions, questionsRaw, followUpRaw,
+  isGeneratingQuestions, questionsRaw, followUpRaw, lastFollowUpRaw,
   evaluationRaw, isEvaluating,
   noteContent, onNoteChange,
   onUploadSuccess, onStart, onPause, onResume,
@@ -68,6 +71,7 @@ export const MainLayout: React.FC<Props> = ({
   bankQuestionGroups, onAddBankGroup, onRemoveBankGroup,
   wsStatus, wsError, audioError, appError,
   onClearAppError, onClearWsError, onReconnect, onSetJobRequirement,
+  voiceprintEnabled, onToggleVoiceprint, onManualRoleSwitch,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
   const [rightWidth, setRightWidth] = useState(400);
@@ -188,6 +192,34 @@ export const MainLayout: React.FC<Props> = ({
             </svg>
             声纹管理
           </Link>
+          {sessionId && (status === 'recording' || status === 'paused') && (
+            <button
+              className={`${styles['btn-voiceprint-toggle']} ${voiceprintEnabled ? styles.active : ''}`}
+              onClick={onToggleVoiceprint}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              </svg>
+              {voiceprintEnabled ? '声纹识别已启用' : '启用声纹识别'}
+            </button>
+          )}
+          {sessionId && (status === 'recording' || status === 'paused') && (
+            <div className={styles['role-switch-group']}>
+              <button
+                className={`${styles['role-switch-btn']} ${currentRole === 'interviewer' ? styles.active : ''}`}
+                onClick={() => onManualRoleSwitch('interviewer')}
+              >
+                面试官
+              </button>
+              <button
+                className={`${styles['role-switch-btn']} ${currentRole === 'candidate' ? styles.active : ''}`}
+                onClick={() => onManualRoleSwitch('candidate')}
+              >
+                候选人
+              </button>
+            </div>
+          )}
           <Link to="/job-requirement" className={styles['btn-job-requirement']}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
@@ -295,6 +327,7 @@ export const MainLayout: React.FC<Props> = ({
               isGenerating={isGeneratingQuestions}
               questionsRaw={questionsRaw}
               followUpRaw={followUpRaw}
+              lastFollowUpRaw={lastFollowUpRaw}
               onGenerate={onGenerateQuestions}
               bankQuestionGroups={bankQuestionGroups}
               onAddBankGroup={onAddBankGroup}
