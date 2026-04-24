@@ -12,6 +12,7 @@ from backend.prompts.star_analysis import (
     STAR_ANALYSIS_PROMPT,
     INCREMENTAL_ANALYSIS_PROMPT,
     INTERVIEW_QUESTIONS_PROMPT,
+    PSYCHOLOGY_ANALYSIS_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -227,3 +228,20 @@ async def interview_evaluation_stream(
             yield chunk
         except StopIteration:
             break
+
+
+async def psychology_analyze_stream(
+    resume_context: str,
+    current_question: str,
+    recent_sentences: str,
+    accumulated_answer: str,
+):
+    """Analyze candidate psychology state and cheating/reading risk during interview."""
+    prompt = PSYCHOLOGY_ANALYSIS_PROMPT.format(
+        resume_context=resume_context[:2000],
+        current_question=current_question,
+        recent_sentences=recent_sentences,
+        accumulated_answer=accumulated_answer[-500:] if accumulated_answer else recent_sentences,
+    )
+    async for chunk in _async_stream_llm(prompt):
+        yield chunk
