@@ -145,6 +145,7 @@ function App() {
       lastFollowUpRaw={interview.lastFollowUpRaw}
       evaluationRaw={interview.evaluationRaw}
       isEvaluating={interview.isEvaluating}
+      psychologyRaw={interview.psychologyRaw}
       noteContent={noteContent}
       onNoteChange={setNoteContent}
       onUploadSuccess={interview.onUploadSuccess}

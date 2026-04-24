@@ -28,6 +28,7 @@ interface Props {
   lastFollowUpRaw: string;
   evaluationRaw: string;
   isEvaluating: boolean;
+  psychologyRaw: string;
   noteContent: string;
   onNoteChange: (v: string) => void;
   onUploadSuccess: (sessionId: string, candidate: CandidateInfo) => void;
@@ -63,7 +64,7 @@ export const MainLayout: React.FC<Props> = ({
   candidate, sessionId, status, currentRole,
   transcript, currentPartial, isAnalyzing,
   isGeneratingQuestions, questionsRaw, followUpRaw, lastFollowUpRaw,
-  evaluationRaw, isEvaluating,
+  evaluationRaw, isEvaluating, psychologyRaw,
   noteContent, onNoteChange,
   onUploadSuccess, onStart, onPause, onResume,
   onStop, onSubmitAnswer, onGenerateQuestions,
@@ -309,7 +310,7 @@ export const MainLayout: React.FC<Props> = ({
           <div className={styles['resize-handle-h']} onMouseDown={startDrag('note')} />
 
           <div className={`${styles['center-note']} glow-card`} style={{ height: noteHeight, minHeight: 120 }}>
-            <NotePanel value={noteContent} onChange={onNoteChange} />
+            <NotePanel value={noteContent} onChange={onNoteChange} psychologyRaw={psychologyRaw} />
           </div>
         </main>
 

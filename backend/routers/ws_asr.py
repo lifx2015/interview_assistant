@@ -10,7 +10,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.routers.sessions import get_sessions
 from backend.services.asr_service import ASRService
-from backend.services.llm_service import incremental_analyze_stream, interview_evaluation_stream
+from backend.services.llm_service import incremental_analyze_stream, interview_evaluation_stream, psychology_analyze_stream
 from backend.services.voiceprint_service import voiceprint_service
 
 router = APIRouter()
@@ -62,6 +62,10 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
     _ANALYSIS_MIN_SENTENCE_LEN = 30
     _ANALYSIS_ACCUMULATED_INTERVAL = 150
     _ANALYSIS_TIME_GAP = 15.0
+
+    _psychology_in_flight = False
+    _psychology_trigger_count = 0
+    _PSYCHOLOGY_TRIGGER_INTERVAL = 3
 
     def reset_voiceprint_state(clear_chunks: bool = True):
         nonlocal voiceprint_hit_count, voiceprint_candidate_role, recent_audio_chunks
@@ -230,6 +234,34 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                 {"type": "error", "data": f"Incremental analysis failed: {str(e)}"}
             )
 
+    async def run_psychology_analysis(sentence: str):
+        """Run psychology/cheating analysis for a candidate sentence."""
+        nonlocal _psychology_in_flight
+        if _psychology_in_flight:
+            return
+        _psychology_in_flight = True
+        try:
+            accumulated = "".join(candidate_text)
+            resume_ctx = session.get("resume_text", "")
+
+            question_context = current_question
+            if follow_up_questions:
+                question_context += "\n[追问] " + " ".join(follow_up_questions[-3:])
+
+            await websocket.send_json({"type": "psychology_start"})
+            async for chunk in psychology_analyze_stream(
+                resume_context=resume_ctx,
+                current_question=question_context,
+                recent_sentences=sentence,
+                accumulated_answer=accumulated,
+            ):
+                await websocket.send_json({"type": "psychology_stream", "data": chunk})
+            await websocket.send_json({"type": "psychology_complete"})
+        except Exception as e:
+            logger.exception("Psychology analysis failed")
+        finally:
+            _psychology_in_flight = False
+
     try:
         async def forward_results():
             nonlocal has_candidate_spoken_this_round
@@ -238,6 +270,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             nonlocal follow_up_questions
             nonlocal _last_analysis_time
             nonlocal _last_analysis_accumulated
+            nonlocal _psychology_trigger_count
 
             while True:
                 item = await result_queue.get()
@@ -286,6 +319,12 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                     _last_analysis_time = now
                     _last_analysis_accumulated = accumulated_len
                     asyncio.create_task(run_incremental_analysis(item["text"]))
+
+                    # Trigger psychology analysis every N incremental analyses
+                    _psychology_trigger_count += 1
+                    if _psychology_trigger_count >= _PSYCHOLOGY_TRIGGER_INTERVAL:
+                        _psychology_trigger_count = 0
+                        asyncio.create_task(run_psychology_analysis(item["text"]))
 
         forward_task = asyncio.create_task(forward_results())
 

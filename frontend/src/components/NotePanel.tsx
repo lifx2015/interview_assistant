@@ -1,79 +1,65 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { MarkdownRenderer } from './MarkdownRenderer';
+import React, { useState } from 'react';
 import styles from './NotePanel.module.css';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 interface Props {
   value: string;
   onChange: (v: string) => void;
+  psychologyRaw: string;
 }
 
-export const NotePanel: React.FC<Props> = ({ value, onChange }) => {
-  const [mode, setMode] = useState<'edit' | 'preview'>('edit');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (mode === 'edit' && textareaRef.current) {
-      textareaRef.current.focus();
-    }
-  }, [mode]);
-
-  const insertMarkdown = (prefix: string, suffix: string = '') => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const selected = value.substring(start, end);
-    const replacement = `${prefix}${selected || 'text'}${suffix}`;
-    const newValue = value.substring(0, start) + replacement + value.substring(end);
-    onChange(newValue);
-    setTimeout(() => {
-      ta.selectionStart = start + prefix.length;
-      ta.selectionEnd = start + prefix.length + (selected || 'text').length;
-      ta.focus();
-    }, 0);
-  };
+export const NotePanel: React.FC<Props> = ({ value, onChange, psychologyRaw }) => {
+  const [activeTab, setActiveTab] = useState<'notes' | 'psychology'>('notes');
 
   return (
     <div className={styles['note-panel']}>
-      <div className={styles['note-header']}>
-        <div className={styles['note-title']}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="2">
+      <div className={styles['note-tabs']}>
+        <button
+          className={`${styles['note-tab']} ${activeTab === 'notes' ? styles.active : ''}`}
+          onClick={() => setActiveTab('notes')}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
           </svg>
-          <span>面试笔记</span>
-        </div>
-        <div className={styles['note-actions']}>
-          {mode === 'edit' && (
-            <div className={styles['note-toolbar']}>
-              <button onClick={() => insertMarkdown('**', '**')} title="Bold">B</button>
-              <button onClick={() => insertMarkdown('*', '*')} title="Italic" style={{ fontStyle: 'italic' }}>I</button>
-              <button onClick={() => insertMarkdown('- ')} title="List">&#8226;</button>
-              <button onClick={() => insertMarkdown('## ')} title="Heading">H</button>
-            </div>
-          )}
-          <button
-            className={`${styles['mode-btn']} ${mode === 'edit' ? styles.active : ''}`}
-            onClick={() => setMode('edit')}
-          >编辑</button>
-          <button
-            className={`${styles['mode-btn']} ${mode === 'preview' ? styles.active : ''}`}
-            onClick={() => setMode('preview')}
-          >预览</button>
-        </div>
+          面试笔记
+        </button>
+        <button
+          className={`${styles['note-tab']} ${activeTab === 'psychology' ? styles.active : ''}`}
+          onClick={() => setActiveTab('psychology')}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" />
+            <path d="M12 16v-4" />
+            <path d="M12 8h.01" />
+          </svg>
+          心理状态
+          {psychologyRaw && <span className={styles['psych-dot']} />}
+        </button>
       </div>
-      <div className={styles['note-body']}>
-        {mode === 'edit' ? (
+
+      <div className={styles['note-content']}>
+        {activeTab === 'notes' ? (
           <textarea
-            ref={textareaRef}
-            className={styles['note-editor']}
+            className={styles['note-textarea']}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="记录面试笔记... (支持 Markdown)"
+            placeholder="记录面试笔记、观察要点..."
           />
         ) : (
-          <div className={styles['note-preview']}>
-            <MarkdownRenderer content={value} />
+          <div className={styles['psychology-content']}>
+            {psychologyRaw ? (
+              <MarkdownRenderer content={psychologyRaw} isStreaming={true} />
+            ) : (
+              <div className={styles['psychology-empty']}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
+                  <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" />
+                  <path d="M12 16v-4" />
+                  <path d="M12 8h.01" />
+                </svg>
+                <p>候选人回答时将自动分析心理状态和念稿风险</p>
+              </div>
+            )}
           </div>
         )}
       </div>

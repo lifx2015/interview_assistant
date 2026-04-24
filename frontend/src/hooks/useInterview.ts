@@ -30,6 +30,7 @@ export function useInterview() {
   const [followUpRaw, setFollowUpRaw] = useState('');
   const [evaluationRaw, setEvaluationRaw] = useState('');
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [psychologyRaw, setPsychologyRaw] = useState('');
   const [lastFollowUpRaw, setLastFollowUpRaw] = useState('');
 
   const [bankQuestionGroups, setBankQuestionGroups] = useState<BankQuestionGroup[]>([]);
@@ -144,6 +145,7 @@ export function useInterview() {
     setFollowUpRaw('');
     setLastFollowUpRaw('');
     setEvaluationRaw('');
+    setPsychologyRaw('');
     setIsAnalyzing(false);
     setIsEvaluating(false);
   }, []);
@@ -353,6 +355,7 @@ export function useInterview() {
     lastFollowUpRaw,
     evaluationRaw,
     isEvaluating,
+    psychologyRaw,
     bankQuestionGroups,
     addBankGroup,
     removeBankGroup,
