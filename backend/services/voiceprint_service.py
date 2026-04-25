@@ -211,7 +211,7 @@ class VoiceprintService:
     def identify_speaker(
         self,
         audio_data: bytes,
-        threshold: float = 0.6,
+        threshold: float = 0.56,
         use_cache: bool = True,
     ) -> dict:
         recognizer = self._ensure_recognizer()
@@ -237,14 +237,35 @@ class VoiceprintService:
             with open(temp_file, 'wb') as f:
                 f.write(wav_data)
 
+            # 检查音频能量，跳过低能量（静音）
+            import numpy as np
+            samples = np.frombuffer(audio_data, dtype=np.int16)
+            energy = np.abs(samples).mean()
+            logger.info("[VoiceprintService] Audio energy: %.1f (threshold: 50)", energy)
+
+            if energy < 50:
+                logger.warning("[VoiceprintService] Audio energy too low (%.1f), likely silence or weak - skipping", energy)
+                return {
+                    "matched": False,
+                    "voice_id": None,
+                    "role": "candidate",
+                    "confidence": 0,
+                    "message": "音频能量过低，可能是静音",
+                    "provider": recognizer.provider,
+                }
+
             result = recognizer.identify_speaker(
                 audio_path=str(temp_file),
                 session_id=GLOBAL_INTERVIEWER_SESSION,
                 threshold=threshold,
             )
 
-            if temp_file.exists():
-                temp_file.unlink()
+            # 暂时保留临时文件用于调试
+            logger.info("[VoiceprintService] Temp file saved: %s (len=%d bytes)",
+                        str(temp_file), len(audio_data))
+
+            # if temp_file.exists():
+            #     temp_file.unlink()
 
             logger.info("[VoiceprintService] Raw result: matched=%s role=%s confidence=%.4f",
                         result.get("matched"), result.get("role"), result.get("confidence", 0))

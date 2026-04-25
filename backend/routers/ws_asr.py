@@ -5,7 +5,6 @@ import asyncio
 import json
 import logging
 import time
-import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -90,8 +89,8 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
 
     recent_audio_chunks: list[bytes] = []
     voiceprint_accumulated_bytes = 0
-    VOICEPRINT_MIN_BYTES = 48000  # 1.5秒音频才触发（平衡速度和准确度）
-    INTERVIEWER_CONFIDENCE_THRESHOLD = 0.75
+    VOICEPRINT_MIN_BYTES = 96000  # 3秒音频才触发（提高质量）
+    INTERVIEWER_CONFIDENCE_THRESHOLD = 0.56  # 基于实测：同一人得分0.60-0.64，不同人为负值
 
     job_requirement: dict | None = None
 
@@ -183,7 +182,7 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
         def do_identification():
             logger.info("[VOICEPRINT-THREAD] Running identification...")
             try:
-                result = voiceprint_service.identify_speaker(audio_data=audio_data, threshold=0.75)
+                result = voiceprint_service.identify_speaker(audio_data=audio_data, threshold=INTERVIEWER_CONFIDENCE_THRESHOLD)
                 logger.info("[VOICEPRINT-THREAD] Result: matched=%s role=%s confidence=%.2f",
                             result.get("matched"), result.get("role"), result.get("confidence", 0))
                 return result

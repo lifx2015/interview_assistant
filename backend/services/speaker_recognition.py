@@ -117,7 +117,9 @@ class SpeakerRecognizer:
         """计算余弦相似度"""
         # 已经归一化了，直接点积
         score = float(np.dot(emb1, emb2))
-        return max(0.0, min(1.0, score))  # clamp to [0, 1]
+        # 不 clamp，允许负值表示方向相反
+        logger.debug("[ECAPA] similarity raw: %.4f", score)
+        return score
 
     def register_speaker(self, voice_id: str, role: str, name: str, audio_path: str, session_id: str):
         """注册说话人"""
@@ -137,7 +139,7 @@ class SpeakerRecognizer:
 
         return {"success": True, "voice_id": voice_id}
 
-    def identify_speaker(self, audio_path: str, session_id: str, threshold: float = 0.75) -> dict:
+    def identify_speaker(self, audio_path: str, session_id: str, threshold: float = 0.56) -> dict:
         """识别说话人"""
         query_emb = self.extract_embedding(audio_path)
 

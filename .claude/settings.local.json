@@ -12,7 +12,15 @@
       "Bash(python -c \"import py_compile; py_compile.compile\\('routers/ws_asr.py', doraise=True\\); py_compile.compile\\('routers/interview.py', doraise=True\\); py_compile.compile\\('services/database.py', doraise=True\\); py_compile.compile\\('models/schemas.py', doraise=True\\); print\\('All OK'\\)\")",
       "Bash(python -c \"import py_compile; py_compile.compile\\('routers/ws_asr.py', doraise=True\\); py_compile.compile\\('services/llm_service.py', doraise=True\\); py_compile.compile\\('prompts/star_analysis.py', doraise=True\\); print\\('All OK'\\)\")",
       "Bash(python -c \"import py_compile; py_compile.compile\\('routers/ws_asr.py', doraise=True\\); py_compile.compile\\('services/llm_service.py', doraise=True\\); print\\('Backend OK'\\)\")",
-      "Bash(python -c \"import py_compile; py_compile.compile\\('routers/ws_asr.py', doraise=True\\); py_compile.compile\\('services/llm_service.py', doraise=True\\); py_compile.compile\\('prompts/star_analysis.py', doraise=True\\); print\\('Backend OK'\\)\")"
+      "Bash(python -c \"import py_compile; py_compile.compile\\('routers/ws_asr.py', doraise=True\\); py_compile.compile\\('services/llm_service.py', doraise=True\\); py_compile.compile\\('prompts/star_analysis.py', doraise=True\\); print\\('Backend OK'\\)\")",
+      "Bash(taskkill /F /PID 29032)",
+      "Bash(taskkill /F /PID 12164)",
+      "Bash(python -m uvicorn backend.main:app --reload --port 8000)",
+      "Bash(curl -s http://localhost:8000/api/voiceprints/provider)",
+      "Bash(curl -v http://localhost:8000/api/voiceprints/provider)",
+      "Bash(curl -s http://localhost:8000/api/voiceprints/providers)",
+      "Bash(curl -s http://localhost:8000/api/voiceprint/providers)",
+      "Bash(curl -s http://localhost:8000/api/voiceprint/list)"
     ]
   }
 }
