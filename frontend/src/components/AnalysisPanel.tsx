@@ -4,15 +4,15 @@ import styles from './AnalysisPanel.module.css';
 
 interface Props {
   analysisRaw: string;
-  incrementalRaw: string;
   isAnalyzing: boolean;
+  jobRequirementName?: string;
 }
 
 export const AnalysisPanel: React.FC<Props> = ({
-  analysisRaw, isAnalyzing,
+  analysisRaw, isAnalyzing, jobRequirementName,
 }) => {
   const hasContent = analysisRaw.length > 0;
-  const isStreaming = isAnalyzing && !analysisRaw;
+  const isStreaming = isAnalyzing;
 
   return (
     <div className={styles['analysis-panel']}>
@@ -23,7 +23,7 @@ export const AnalysisPanel: React.FC<Props> = ({
           <line x1="16" y1="13" x2="8" y2="13" />
           <line x1="16" y1="17" x2="8" y2="17" />
         </svg>
-        <span>面试评估</span>
+        <span>面试评估{jobRequirementName ? ` · ${jobRequirementName}` : ''}</span>
         {isStreaming && <span className={styles['live-badge']}><span className={styles['live-dot-sm']} />生成中</span>}
       </div>
 

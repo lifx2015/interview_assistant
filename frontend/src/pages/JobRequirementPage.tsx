@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { jobRequirementApi } from '../services/api';
 import styles from './JobRequirementPage.module.css';
 import type { JobRequirement } from '../types';
 

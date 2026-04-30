@@ -12,12 +12,16 @@ import type {
 
 export function useInterview() {
   const [status, setStatus] = useState<InterviewStatus>('idle');
-  const [sessionId, setSessionId] = useState<string | null>('test-session-001');
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<CandidateInfo | null>(null);
   const [currentRole, setCurrentRole] = useState<SpeakerRole>('interviewer');
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [pendingSentences, setPendingSentences] = useState<{text: string, sentence_id: number}[]>([]);
   const [currentPartial, setCurrentPartial] = useState('');
+  const [partialByRole, setPartialByRole] = useState<Record<SpeakerRole, string>>({
+    interviewer: '',
+    candidate: '',
+  });
   const [interviewerText, setInterviewerText] = useState('');
   const [candidateText, setCandidateText] = useState('');
   const [qaHistory, setQaHistory] = useState<QARecord[]>([]);
@@ -26,12 +30,22 @@ export function useInterview() {
   const [questionsRaw, setQuestionsRaw] = useState('');
   const [savedInterviews, setSavedInterviews] = useState<InterviewListItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [recordingPaths, setRecordingPaths] = useState<string[]>([]);
   const [appError, setAppError] = useState<string | null>(null);
 
   const [followUpRaw, setFollowUpRaw] = useState('');
+  const followUpRawRef = useRef('');
+  const _setFollowUpRaw = useCallback((value: string | ((prev: string) => string)) => {
+    setFollowUpRaw((prev) => {
+      const next = typeof value === 'function' ? value(prev) : value;
+      followUpRawRef.current = next;
+      return next;
+    });
+  }, []);
   const [evaluationRaw, setEvaluationRaw] = useState('');
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [psychologyRaw, setPsychologyRaw] = useState('');
+  const [isPsychologyAnalyzing, setIsPsychologyAnalyzing] = useState(false);
   const [lastFollowUpRaw, setLastFollowUpRaw] = useState('');
 
   const [bankQuestionGroups, setBankQuestionGroups] = useState<BankQuestionGroup[]>([]);
@@ -43,145 +57,123 @@ export function useInterview() {
     wsSendRef.current = fn;
   }, []);
 
-  const handleASRResult = useCallback((data: any) => {
-    console.log('[useInterview] handleASRResult:', data);
-    if (data.type === 'partial') {
-      console.log('[useInterview] partial: role=%s text=%s', data.role, data.text?.slice(0, 50));
-      setCurrentPartial(data.text);
-      return;
+  const addTranscriptEntry = (role: SpeakerRole, text: string) => {
+    sentenceIdRef.current += 1;
+    const entry: TranscriptEntry = {
+      id: sentenceIdRef.current,
+      role,
+      text,
+      isFinal: true,
+      timestamp: Date.now(),
+    };
+    setTranscript(prev => [...prev, entry]);
+    if (role === 'interviewer') {
+      setInterviewerText(prev => prev + text);
+    } else {
+      setCandidateText(prev => prev + text);
     }
+  };
 
-    if (data.type === 'sentence_pending') {
-      // 句子待确认角色，加入 pending 队列
-      console.log('[useInterview] sentence_pending: text=%s', data.text?.slice(0, 50));
+  const messageHandlers: Record<string, (data: any) => void> = {
+    partial: (data) => {
+      if (data.role === 'interviewer' || data.role === 'candidate') {
+        setPartialByRole(prev => ({ ...prev, [data.role]: data.text }));
+      } else {
+        setCurrentPartial(data.text);
+      }
+    },
+    sentence_pending: (data) => {
       setPendingSentences(prev => [...prev, { text: data.text, sentence_id: data.sentence_id }]);
-      setCurrentPartial(''); // 清除 partial
-      return;
-    }
-
-    if (data.type === 'sentence_confirmed') {
-      // 句子角色确认，从 pending 移到 transcript
-      console.log('[useInterview] sentence_confirmed: role=%s text=%s', data.role, data.text?.slice(0, 50));
-      sentenceIdRef.current += 1;
-      const entry: TranscriptEntry = {
-        id: sentenceIdRef.current,
-        role: data.role || 'interviewer',
-        text: data.text,
-        isFinal: true,
-        timestamp: Date.now(),
-      };
-      setTranscript(prev => [...prev, entry]);
-      // 从 pending 中移除
-      setPendingSentences(prev => prev.filter(s => s.sentence_id !== data.sentence_id));
-      // 累积文本
-      if (entry.role === 'interviewer') {
-        setInterviewerText(prev => prev + data.text);
-      } else {
-        setCandidateText(prev => prev + data.text);
-      }
-      return;
-    }
-
-    if (data.type === 'sentence') {
-      // 兼容旧消息格式（无声纹时直接确认）
-      console.log('[useInterview] sentence: role=%s text=%s', data.role, data.text?.slice(0, 100));
-      sentenceIdRef.current += 1;
-      const entry: TranscriptEntry = {
-        id: sentenceIdRef.current,
-        role: data.role || 'interviewer',
-        text: data.text,
-        isFinal: true,
-        timestamp: Date.now(),
-      };
-      setTranscript((prev) => [...prev, entry]);
-      if (entry.role === 'interviewer') {
-        setInterviewerText((prev) => prev + data.text);
-      } else {
-        setCandidateText((prev) => prev + data.text);
-      }
       setCurrentPartial('');
-      return;
-    }
-
-    if (data.type === 'role_switched') {
-      console.log('[useInterview] role_switched: new_role=%s detected_by=%s', data.role, data.detected_by);
+    },
+    sentence_confirmed: (data) => {
+      addTranscriptEntry(data.role || 'interviewer', data.text);
+      setPendingSentences(prev => prev.filter(s => s.sentence_id !== data.sentence_id));
+    },
+    sentence: (data) => {
+      addTranscriptEntry(data.role || 'interviewer', data.text);
+      setCurrentPartial('');
+      if (data.role === 'interviewer' || data.role === 'candidate') {
+        setPartialByRole(prev => ({ ...prev, [data.role]: '' }));
+      } else {
+        setPartialByRole({ interviewer: '', candidate: '' });
+      }
+    },
+    role_switched: (data) => {
       setCurrentRole(data.role);
-      return;
-    }
-
-    if (data.type === 'follow_up_stream') {
+    },
+    follow_up_stream: (data) => {
       setIsAnalyzing(true);
-      setFollowUpRaw((prev: string) => prev + data.data);
-      return;
-    }
-
-    if (data.type === 'follow_up_complete') {
+      _setFollowUpRaw((prev: string) => prev + data.data);
+    },
+    follow_up_complete: () => {
       setIsAnalyzing(false);
-      return;
-    }
-
-    if (data.type === 'follow_up_clear') {
+    },
+    follow_up_clear: () => {
       setIsAnalyzing(false);
-      setFollowUpRaw((prev) => {
-        if (prev) setLastFollowUpRaw(prev);
-        return '';
-      });
-      return;
-    }
-
-    if (data.type === 'answer_complete_ack') {
+      if (followUpRawRef.current) setLastFollowUpRaw(followUpRawRef.current);
+      _setFollowUpRaw('');
+    },
+    answer_complete_ack: (data) => {
       if (data.question && data.answer) {
         setQaHistory((prev) => [...prev, { question: data.question, answer: data.answer }]);
       }
       setIsAnalyzing(false);
       setStatus('idle');
-      return;
-    }
-
-    if (data.type === 'evaluation_start') {
+    },
+    psychology_start: () => {
+      setPsychologyRaw('');
+      setIsPsychologyAnalyzing(true);
+    },
+    psychology_stream: (data) => {
+      setPsychologyRaw((prev: string) => prev + data.data);
+    },
+    psychology_complete: () => {
+      setIsPsychologyAnalyzing(false);
+    },
+    evaluation_start: () => {
       setIsEvaluating(true);
       setEvaluationRaw('');
-      return;
-    }
-
-    if (data.type === 'evaluation_stream') {
+    },
+    evaluation_stream: (data) => {
       setEvaluationRaw((prev: string) => prev + data.data);
-      return;
-    }
-
-    if (data.type === 'error') {
-      setIsAnalyzing(false);
-      setAppError(data.data || '未知错误');
-      return;
-    }
-
-    if (data.type === 'evaluation_complete') {
+    },
+    evaluation_complete: () => {
       setIsEvaluating(false);
       setStatus('idle');
-    }
+    },
+    error: (data) => {
+      setIsAnalyzing(false);
+      setAppError(typeof data.data === 'string' ? data.data : JSON.stringify(data.data) || '未知错误');
+    },
+  };
+
+  const handleASRResult = useCallback((data: any) => {
+    const handler = messageHandlers[data.type];
+    if (handler) handler(data);
   }, []);
 
   const switchRole = useCallback((role: SpeakerRole) => {
     setCurrentRole(role);
     if (role === 'candidate') {
-      setFollowUpRaw((prev) => {
-        if (prev) setLastFollowUpRaw(prev);
-        return '';
-      });
+      if (followUpRawRef.current) setLastFollowUpRaw(followUpRawRef.current);
+      _setFollowUpRaw('');
     }
-  }, []);
+  }, [_setFollowUpRaw]);
 
   const startInterview = useCallback(() => {
     setStatus('recording');
     setTranscript([]);
     setCurrentPartial('');
+    setPartialByRole({ interviewer: '', candidate: '' });
     setInterviewerText('');
     setCandidateText('');
     setQaHistory([]);
-    setFollowUpRaw('');
+    _setFollowUpRaw('');
     setLastFollowUpRaw('');
     setEvaluationRaw('');
     setPsychologyRaw('');
+    setIsPsychologyAnalyzing(false);
     setIsAnalyzing(false);
     setIsEvaluating(false);
   }, []);
@@ -197,19 +189,15 @@ export function useInterview() {
   const stopInterview = useCallback(() => {
     setStatus('evaluating');
     setIsAnalyzing(false);
-    setFollowUpRaw((prev) => {
-      if (prev) setLastFollowUpRaw(prev);
-      return '';
-    });
-  }, []);
+    if (followUpRawRef.current) setLastFollowUpRaw(followUpRawRef.current);
+    _setFollowUpRaw('');
+  }, [_setFollowUpRaw]);
 
   const submitAnswer = useCallback(() => {
     setIsAnalyzing(false);
-    setFollowUpRaw((prev) => {
-      if (prev) setLastFollowUpRaw(prev);
-      return '';
-    });
-  }, []);
+    if (followUpRawRef.current) setLastFollowUpRaw(followUpRawRef.current);
+    _setFollowUpRaw('');
+  }, [_setFollowUpRaw]);
 
   const generateQuestions = useCallback(async () => {
     if (!sessionId) return;
@@ -266,7 +254,7 @@ export function useInterview() {
     if (!sessionId || !candidate) return;
     setIsSaving(true);
     try {
-      await fetch('/api/interview/save', {
+      const res = await fetch('/api/interview/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -280,6 +268,12 @@ export function useInterview() {
           notes,
         }),
       });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.recording_paths) {
+          setRecordingPaths(data.recording_paths);
+        }
+      }
     } catch (e) {
       console.error('Failed to save interview:', e);
       setAppError('面试保存失败，请重试');
@@ -316,11 +310,12 @@ export function useInterview() {
       setCurrentPartial('');
       setInterviewerText('');
       setCandidateText('');
-      setFollowUpRaw('');
+      _setFollowUpRaw('');
       setLastFollowUpRaw('');
       setEvaluationRaw(data.evaluation_raw || '');
       setIsEvaluating(false);
       setIsAnalyzing(false);
+      setRecordingPaths(data.recording_paths || []);
 
       return data.notes || '';
     } catch (e) {
@@ -359,6 +354,14 @@ export function useInterview() {
     setAppError(null);
   }, []);
 
+  const triggerFollowUp = useCallback(() => {
+    wsSendRef.current?.({ type: 'control', action: 'trigger_follow_up' });
+  }, []);
+
+  const triggerPsychology = useCallback(() => {
+    wsSendRef.current?.({ type: 'control', action: 'trigger_psychology' });
+  }, []);
+
   return {
     status,
     sessionId,
@@ -367,6 +370,7 @@ export function useInterview() {
     transcript,
     pendingSentences,
     currentPartial,
+    partialByRole,
     interviewerText,
     candidateText,
     qaHistory,
@@ -384,6 +388,7 @@ export function useInterview() {
     onUploadSuccess,
     savedInterviews,
     isSaving,
+    recordingPaths,
     saveInterview,
     fetchInterviewList,
     loadInterview,
@@ -393,11 +398,14 @@ export function useInterview() {
     evaluationRaw,
     isEvaluating,
     psychologyRaw,
+    isPsychologyAnalyzing,
     bankQuestionGroups,
     addBankGroup,
     removeBankGroup,
     clearBankGroups,
     appError,
     clearAppError,
+    triggerFollowUp,
+    triggerPsychology,
   };
 }

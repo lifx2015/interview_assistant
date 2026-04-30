@@ -1,10 +1,9 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import styles from './MainLayout.module.css';
-import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem, BankQuestionGroup, JobRequirement } from '../types';
+import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem, BankQuestionGroup, JobRequirement, InterviewMode } from '../types';
 import type { WSStatus } from '../hooks/useWebSocket';
 import { ResumeUploader } from './ResumeUploader';
 import { CandidatePanel } from './CandidatePanel';
-import { PDFViewer } from './PDFViewer';
 import { NotePanel } from './NotePanel';
 import { TranscriptPanel } from './TranscriptPanel';
 import { ControlBar } from './ControlBar';
@@ -12,6 +11,7 @@ import { QuestionPanel } from './QuestionPanel';
 import { AnalysisPanel } from './AnalysisPanel';
 import { InterviewListPanel } from './InterviewListPanel';
 import { StatusBar } from './StatusBar';
+import { LandingView } from './LandingView';
 import { Link } from 'react-router-dom';
 
 interface Props {
@@ -30,6 +30,7 @@ interface Props {
   evaluationRaw: string;
   isEvaluating: boolean;
   psychologyRaw: string;
+  isPsychologyAnalyzing: boolean;
   noteContent: string;
   onNoteChange: (v: string) => void;
   onUploadSuccess: (sessionId: string, candidate: CandidateInfo) => void;
@@ -41,6 +42,7 @@ interface Props {
   onGenerateQuestions: () => void;
   onSave: () => void;
   isSaving: boolean;
+  recordingPaths: string[];
   savedInterviews: InterviewListItem[];
   onLoadInterview: (sessionId: string) => void;
   onFetchList: () => void;
@@ -56,61 +58,55 @@ interface Props {
   onClearWsError: () => void;
   onReconnect: () => void;
   onSetJobRequirement: (jr: { name: string; description: string } | null) => void;
+  onTriggerFollowUp: () => void;
+  onTriggerPsychology: () => void;
   voiceprintEnabled: boolean;
+  mode: InterviewMode;
+  onModeChange: (mode: InterviewMode) => void;
+  systemAudioError: string | null;
+  partialByRole: Record<SpeakerRole, string>;
 }
+
+type BottomTab = 'transcript' | 'evaluation' | 'notes' | 'psychology';
 
 export const MainLayout: React.FC<Props> = ({
   candidate, sessionId, status, currentRole,
   transcript, pendingSentences, currentPartial, isAnalyzing,
   isGeneratingQuestions, questionsRaw, followUpRaw, lastFollowUpRaw,
-  evaluationRaw, isEvaluating, psychologyRaw,
+  evaluationRaw, isEvaluating, psychologyRaw, isPsychologyAnalyzing,
   noteContent, onNoteChange,
   onUploadSuccess, onStart, onPause, onResume,
   onStop, onSubmitAnswer, onGenerateQuestions,
-  onSave, isSaving, savedInterviews, onLoadInterview, onFetchList,
+  onSave, isSaving, recordingPaths, savedInterviews, onLoadInterview, onFetchList,
   bankQuestionGroups, onAddBankGroup, onRemoveBankGroup,
   wsStatus, wsError, audioError, appError,
   onClearAppError, onClearWsError, onReconnect, onSetJobRequirement,
-  voiceprintEnabled,
+  onTriggerFollowUp, onTriggerPsychology,
+  voiceprintEnabled, mode, onModeChange, systemAudioError, partialByRole,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
-  const [rightWidth, setRightWidth] = useState(400);
-  const [noteHeight, setNoteHeight] = useState(550);
   const [isDragging, setIsDragging] = useState(false);
   const [listOpen, setListOpen] = useState(false);
-  const [rightTab, setRightTab] = useState<'analysis' | 'transcript'>('transcript');
+  const [bottomTab, setBottomTab] = useState<BottomTab>('transcript');
   const [jobRequirements, setJobRequirements] = useState<JobRequirement[]>([]);
   const [selectedJobRequirementId, setSelectedJobRequirementId] = useState<string>('');
+  const [viewPhase, setViewPhase] = useState<'landing' | 'transitioning' | 'workspace'>(sessionId ? 'workspace' : 'landing');
   const containerRef = useRef<HTMLDivElement>(null);
   const prevJobRequirementIdRef = useRef<string>('');
-  const centerRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef<'left' | 'right' | 'note' | null>(null);
+  const dragging = useRef<'left' | null>(null);
   const dragOffset = useRef(0);
 
-  const startDrag = useCallback((side: 'left' | 'right' | 'note') => (e: React.MouseEvent) => {
+  const startDrag = useCallback((side: 'left') => (e: React.MouseEvent) => {
     e.preventDefault();
     dragging.current = side;
     setIsDragging(true);
-    document.body.style.cursor = side === 'note' ? 'row-resize' : 'col-resize';
+    document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-
-    if (side === 'note') {
-      dragOffset.current = noteHeight + e.clientY;
-    } else if (side === 'left') {
-      dragOffset.current = e.clientX - leftWidth;
-    } else if (side === 'right') {
-      dragOffset.current = e.clientX + rightWidth;
-    }
+    dragOffset.current = e.clientX - leftWidth;
 
     const onMouseMove = (ev: MouseEvent) => {
       if (dragging.current === 'left') {
         setLeftWidth(Math.max(240, Math.min(600, ev.clientX - dragOffset.current)));
-      } else if (dragging.current === 'right') {
-        setRightWidth(Math.max(280, Math.min(700, dragOffset.current - ev.clientX)));
-      } else if (dragging.current === 'note' && centerRef.current) {
-        const rect = centerRef.current.getBoundingClientRect();
-        const newHeight = Math.max(120, Math.min(rect.height - 200, dragOffset.current - ev.clientY));
-        setNoteHeight(newHeight);
       }
     };
 
@@ -125,7 +121,7 @@ export const MainLayout: React.FC<Props> = ({
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [noteHeight, leftWidth, rightWidth]);
+  }, [leftWidth]);
 
   useEffect(() => {
     fetch('/api/job-requirement/list')
@@ -147,6 +143,18 @@ export const MainLayout: React.FC<Props> = ({
   }, [selectedJobRequirementId, jobRequirements, onSetJobRequirement]);
 
   const selectedJobRequirement = jobRequirements.find(jr => jr.id === selectedJobRequirementId) || null;
+
+  const handleLandingUpload = useCallback((sid: string, info: CandidateInfo) => {
+    onUploadSuccess(sid, info);
+    setViewPhase('transitioning');
+    setTimeout(() => setViewPhase('workspace'), 800);
+  }, [onUploadSuccess]);
+
+  useEffect(() => {
+    if (sessionId && viewPhase === 'landing') {
+      setViewPhase('workspace');
+    }
+  }, [sessionId, viewPhase]);
 
   return (
     <div className={styles['main-layout']}>
@@ -170,6 +178,21 @@ export const MainLayout: React.FC<Props> = ({
               {isSaving ? '保存中...' : '保存'}
             </button>
           )}
+          {recordingPaths?.length > 0 && sessionId && (
+            <a
+              href={`/api/interview/${sessionId}/recording`}
+              download
+              className={styles['btn-download']}
+              title="下载录音"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              录音
+            </a>
+          )}
           <button className={styles['btn-list']} onClick={() => { onFetchList(); setListOpen(true); }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" />
@@ -192,13 +215,35 @@ export const MainLayout: React.FC<Props> = ({
             </svg>
             声纹管理
           </Link>
-          {status === 'recording' && voiceprintEnabled && (
+          <div className={styles['mode-toggle']}>
+            <button
+              className={`${styles['mode-btn']} ${mode === 'dual-track' ? styles['mode-btn-active'] : ''}`}
+              onClick={() => onModeChange('dual-track')}
+              disabled={status !== 'idle'}
+            >
+              双轨面试
+            </button>
+            <button
+              className={`${styles['mode-btn']} ${mode === 'single-track' ? styles['mode-btn-active'] : ''}`}
+              onClick={() => onModeChange('single-track')}
+              disabled={status !== 'idle'}
+            >
+              单轨面试
+            </button>
+          </div>
+          {status === 'recording' && mode === 'dual-track' && (
+            <div className={`${styles['rec-badge']} ${styles['dual-track']}`}>
+              <span className={styles['rec-dot']} />
+              双轨录音中
+            </div>
+          )}
+          {status === 'recording' && mode === 'single-track' && voiceprintEnabled && (
             <div className={`${styles['rec-badge']} ${styles[currentRole]}`}>
               <span className={styles['rec-dot']} />
               {currentRole === 'interviewer' ? '面试官说话中' : '候选人回答中'}
             </div>
           )}
-          {status === 'recording' && !voiceprintEnabled && (
+          {status === 'recording' && mode === 'single-track' && !voiceprintEnabled && (
             <div className={`${styles['rec-badge']} ${styles.warning}`}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
@@ -221,17 +266,30 @@ export const MainLayout: React.FC<Props> = ({
         wsError={wsError}
         audioError={audioError}
         appError={appError}
+        systemAudioError={systemAudioError}
         onClearAppError={onClearAppError}
         onClearWsError={onClearWsError}
         onReconnect={onReconnect}
       />
 
-      {/* Three-column layout */}
-      <div className={styles.columns} ref={containerRef}>
-        {/* LEFT */}
+      {/* Landing view (before upload) */}
+      {(viewPhase === 'landing' || viewPhase === 'transitioning') && (
+        <LandingView
+          jobRequirements={jobRequirements}
+          selectedJobRequirementId={selectedJobRequirementId}
+          onJobRequirementChange={setSelectedJobRequirementId}
+          onUploadSuccess={handleLandingUpload}
+          isExiting={viewPhase === 'transitioning'}
+        />
+      )}
+
+      {/* Two-column layout (after upload) */}
+      {(viewPhase === 'transitioning' || viewPhase === 'workspace') && (
+        <div className={`${styles.columns} ${viewPhase === 'transitioning' ? styles['workspace-entering'] : ''}`} ref={containerRef}>
+        {/* LEFT - Candidate info */}
         <aside className={`${styles['col-left']} glow-card`} style={{ width: leftWidth, minWidth: leftWidth }}>
           {candidate ? (
-            <CandidatePanel candidate={candidate} />
+            <CandidatePanel candidate={candidate} sessionId={sessionId} />
           ) : (
             <div className={styles['left-empty']}>
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
@@ -240,62 +298,18 @@ export const MainLayout: React.FC<Props> = ({
               <p>上传简历后显示候选人信息</p>
             </div>
           )}
-          {candidate && (
-            <div className={styles['job-requirement-section']}>
-              <div className={styles['jr-section-label']}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)" strokeWidth="2">
-                  <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-                  <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-                </svg>
-                岗位要求
-              </div>
-              <select
-                className={styles['jr-select']}
-                value={selectedJobRequirementId}
-                onChange={e => setSelectedJobRequirementId(e.target.value)}
-              >
-                <option value="">-- 选择岗位 --</option>
-                {jobRequirements.map(jr => (
-                  <option key={jr.id} value={jr.id}>{jr.name}</option>
-                ))}
-              </select>
-              {selectedJobRequirement?.description && (
-                <div className={styles['jr-description']}>{selectedJobRequirement.description}</div>
-              )}
-            </div>
-          )}
         </aside>
 
         <div className={styles['resize-handle']} onMouseDown={startDrag('left')} />
 
-        {/* CENTER */}
-        <main className={styles['col-center']} ref={centerRef}>
-          <div className={styles['center-top']}>
-            {sessionId ? (
-              <PDFViewer sessionId={sessionId} />
-            ) : (
-              <ResumeUploader onUploadSuccess={onUploadSuccess} />
-            )}
-            {isDragging && <div className={styles['iframe-shield']} />}
-          </div>
-
-          <div className={styles['resize-handle-h']} onMouseDown={startDrag('note')} />
-
-          <div className={`${styles['center-note']} glow-card`} style={{ height: noteHeight, minHeight: 120 }}>
-            <NotePanel value={noteContent} onChange={onNoteChange} psychologyRaw={psychologyRaw} />
-          </div>
-        </main>
-
-        <div className={styles['resize-handle']} onMouseDown={startDrag('right')} />
-
-        {/* RIGHT */}
-        <aside className={styles['col-right']} style={{ width: rightWidth, minWidth: rightWidth }}>
+        {/* RIGHT - Questions (top) & Bottom tabs (transcript/evaluation/notes/psychology) */}
+        <main className={styles['col-center']}>
           {listOpen && <InterviewListPanel
             interviews={savedInterviews}
             onLoad={onLoadInterview}
             onClose={() => setListOpen(false)}
           />}
-          <div className={`${styles['right-top']} glow-card`}>
+          <div className={`${styles['center-top']} glow-card`}>
             <QuestionPanel
               isGenerating={isGeneratingQuestions}
               questionsRaw={questionsRaw}
@@ -305,11 +319,14 @@ export const MainLayout: React.FC<Props> = ({
               bankQuestionGroups={bankQuestionGroups}
               onAddBankGroup={onAddBankGroup}
               onRemoveBankGroup={onRemoveBankGroup}
+              onTriggerFollowUp={onTriggerFollowUp}
+              isRecording={status === 'recording' || status === 'paused'}
+              isAnalyzing={isAnalyzing}
             />
           </div>
-          <div className={`${styles['right-bottom']} glow-card`}>
-            <div className={styles['right-bottom-tabs']}>
-              <button className={`${styles['right-tab']} ${rightTab === 'transcript' ? styles.active : ''}`} onClick={() => setRightTab('transcript')}>
+          <div className={`${styles['center-bottom']} glow-card`}>
+            <div className={styles['center-bottom-tabs']}>
+              <button className={`${styles['right-tab']} ${bottomTab === 'transcript' ? styles.active : ''}`} onClick={() => setBottomTab('transcript')}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
@@ -317,7 +334,7 @@ export const MainLayout: React.FC<Props> = ({
                 录音记录
                 {transcript.length > 0 && <span className={styles['tab-count-badge']}>{transcript.length}</span>}
               </button>
-              <button className={`${styles['right-tab']} ${rightTab === 'analysis' ? styles.active : ''}`} onClick={() => setRightTab('analysis')}>
+              <button className={`${styles['right-tab']} ${bottomTab === 'evaluation' ? styles.active : ''}`} onClick={() => setBottomTab('evaluation')}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <polyline points="14 2 14 8 20 8" />
@@ -327,22 +344,81 @@ export const MainLayout: React.FC<Props> = ({
                 面试评估
                 {evaluationRaw && !isEvaluating && <span className={styles['tab-dot']} />}
               </button>
+              <button className={`${styles['right-tab']} ${bottomTab === 'notes' ? styles.active : ''}`} onClick={() => setBottomTab('notes')}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                面试笔记
+              </button>
+              <button className={`${styles['right-tab']} ${bottomTab === 'psychology' ? styles.active : ''}`} onClick={() => setBottomTab('psychology')}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" />
+                  <path d="M12 16v-4" />
+                  <path d="M12 8h.01" />
+                </svg>
+                心理状态
+                {psychologyRaw && <span className={styles['tab-dot']} style={{ background: 'var(--accent-amber)' }} />}
+              </button>
             </div>
-            <div className={styles['right-bottom-content']}>
-              {rightTab === 'transcript' ? (
+            <div className={styles['center-bottom-content']}>
+              {bottomTab === 'transcript' && (
                 <div className={styles['transcript-tab-content']}>
-                  <TranscriptPanel status={status} transcript={transcript} pendingSentences={pendingSentences} currentPartial={currentPartial} currentRole={currentRole} />
-                  <ControlBar status={status} isAnalyzing={isAnalyzing}
+                  <TranscriptPanel status={status} transcript={transcript} pendingSentences={pendingSentences} currentPartial={currentPartial} currentRole={currentRole} mode={mode} partialByRole={partialByRole} />
+                  <ControlBar status={status} isAnalyzing={isAnalyzing} mode={mode}
                     onStart={onStart} onPause={onPause} onResume={onResume}
                     onStop={onStop} onSubmitAnswer={onSubmitAnswer} disabled={!sessionId} />
                 </div>
-              ) : (
-                <AnalysisPanel analysisRaw={evaluationRaw} incrementalRaw="" isAnalyzing={isEvaluating} />
+              )}
+              {bottomTab === 'evaluation' && (
+                <AnalysisPanel analysisRaw={evaluationRaw} isAnalyzing={isEvaluating} jobRequirementName={selectedJobRequirement?.name} />
+              )}
+              {bottomTab === 'notes' && (
+                <NotePanel value={noteContent} onChange={onNoteChange} psychologyRaw={psychologyRaw} onTriggerPsychology={onTriggerPsychology} isRecording={status === 'recording' || status === 'paused'} isPsychologyAnalyzing={isPsychologyAnalyzing} />
+              )}
+              {bottomTab === 'psychology' && (
+                <div className={styles['psychology-tab-content']}>
+                  <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)' }}>
+                    <button
+                      onClick={onTriggerPsychology}
+                      disabled={status !== 'recording' && status !== 'paused' || isPsychologyAnalyzing}
+                      style={{
+                        width: '100%',
+                        padding: '8px 16px',
+                        border: '1px solid var(--accent-amber)',
+                        background: 'rgba(255, 170, 0, 0.08)',
+                        color: 'var(--accent-amber)',
+                        borderRadius: 6,
+                        cursor: (status === 'recording' || status === 'paused') && !isPsychologyAnalyzing ? 'pointer' : 'not-allowed',
+                        fontSize: 13,
+                        opacity: (status === 'recording' || status === 'paused') && !isPsychologyAnalyzing ? 1 : 0.5,
+                      }}
+                    >
+                      {isPsychologyAnalyzing ? '⏳ 分析中...' : '🔍 分析心理状态'}
+                    </button>
+                    {status !== 'recording' && status !== 'paused' && <p style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>录音开始后可手动触发</p>}
+                  </div>
+                  {psychologyRaw ? (
+                    <div style={{ padding: '8px 12px', flex: 1, overflow: 'auto' }}>
+                      <div className="markdown-body" dangerouslySetInnerHTML={{ __html: '' }} />
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, height: '100%', color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', padding: 20 }}>
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" />
+                        <path d="M12 16v-4" />
+                        <path d="M12 8h.01" />
+                      </svg>
+                      <p>点击上方按钮分析候选人心理状态</p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
-        </aside>
-      </div>
+        </main>
+        </div>
+      )}
     </div>
   );
 };

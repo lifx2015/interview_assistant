@@ -58,13 +58,24 @@
   padding: 10px 12px;
 }
 
-.floating-actions {
+.preset-toolbar {
   flex-shrink: 0;
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tab-action {
+  margin-left: auto;
+  flex: none !important;
+  padding: 6px 10px !important;
+  font-size: 11px !important;
+  color: #a78bfa !important;
+  gap: 3px !important;
+}
+
+.tab-action:hover {
+  color: #c4b5fd !important;
+  background: rgba(139, 92, 246, 0.08) !important;
 }
 
 .generate-btn {

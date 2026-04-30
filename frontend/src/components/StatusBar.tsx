@@ -7,6 +7,7 @@ interface Props {
   wsError: string | null;
   audioError: string | null;
   appError: string | null;
+  systemAudioError?: string | null;
   onClearAppError: () => void;
   onClearWsError: () => void;
   onReconnect: () => void;
@@ -17,11 +18,12 @@ export const StatusBar: React.FC<Props> = ({
   wsError,
   audioError,
   appError,
+  systemAudioError,
   onClearAppError,
   onClearWsError,
   onReconnect,
 }) => {
-  const activeError = appError || wsError || audioError;
+  const activeError = appError || wsError || audioError || systemAudioError;
 
   useEffect(() => {
     if (!activeError) return;

@@ -26,7 +26,16 @@ class SpeakerRecognizer:
         self.speaker_db: Dict[str, dict] = {}
         self._model = None
         self._device = None
+        self._model_loaded = False
+
+    def _ensure_model(self):
+        """延迟加载模型，首次使用时才初始化"""
+        if self._model_loaded:
+            return
         self._init_model()
+        # Only mark as loaded if model actually initialized successfully
+        if self._model is not None:
+            self._model_loaded = True
 
     def _init_model(self):
         """初始化 ECAPA-TDNN 模型"""
@@ -87,6 +96,7 @@ class SpeakerRecognizer:
 
     def extract_embedding(self, audio_path: str) -> np.ndarray:
         """提取 192 维声纹嵌入向量"""
+        self._ensure_model()
         if self._model is None:
             raise RuntimeError("ECAPA 模型未加载")
 
@@ -139,8 +149,8 @@ class SpeakerRecognizer:
 
         return {"success": True, "voice_id": voice_id}
 
-    def identify_speaker(self, audio_path: str, session_id: str, threshold: float = 0.56) -> dict:
-        """识别说话人"""
+    def identify_speaker(self, audio_path: str, session_id: str, threshold: float = 0.50) -> dict:
+        """识别说话人 - 对同一 name 的多个声纹取 centroid 再比较"""
         query_emb = self.extract_embedding(audio_path)
 
         # 获取当前会话的声纹
@@ -153,26 +163,41 @@ class SpeakerRecognizer:
             logger.info("[ECAPA] No voiceprints for session=%s", session_id)
             return {"matched": False, "voice_id": None, "role": None, "confidence": 0}
 
-        logger.info("[ECAPA] Comparing %d voiceprints, threshold=%.2f",
-                    len(session_voiceprints), threshold)
+        # 按 name 分组，计算每个 name 的 centroid embedding
+        name_groups: Dict[str, list] = {}
+        for voice_id, vp in session_voiceprints.items():
+            name = vp.get("name", voice_id)
+            if name not in name_groups:
+                name_groups[name] = []
+            name_groups[name].append(vp)
+
+        logger.info("[ECAPA] Comparing %d voiceprints (%d unique names), threshold=%.2f",
+                    len(session_voiceprints), len(name_groups), threshold)
 
         best_match = None
         best_score = 0.0
 
-        for voice_id, vp in session_voiceprints.items():
-            ref_emb = np.array(vp["embedding"])
-            logger.info("[ECAPA] DEBUG: ref_emb shape=%s, norm=%.4f, first5=%s",
-                        ref_emb.shape, np.linalg.norm(ref_emb), ref_emb[:5])
-            logger.info("[ECAPA] DEBUG: query_emb shape=%s, norm=%.4f, first5=%s",
-                        query_emb.shape, np.linalg.norm(query_emb), query_emb[:5])
-            score = self.compare_similarity(query_emb, ref_emb)
+        for name, vps in name_groups.items():
+            # 计算该 name 的 centroid（多个 embedding 取平均后归一化）
+            embeddings = [np.array(vp["embedding"]) for vp in vps]
+            if len(embeddings) == 1:
+                centroid = embeddings[0]
+            else:
+                centroid = np.mean(embeddings, axis=0)
+                norm = np.linalg.norm(centroid)
+                if norm > 0:
+                    centroid = centroid / norm
+                logger.info("[ECAPA] Centroid for %s: %d samples, norm=%.4f", name, len(embeddings), norm)
 
-            logger.info("[ECAPA] Compare: voice_id=%s role=%s name=%s score=%.4f",
-                        voice_id, vp["role"], vp["name"], score)
+            score = self.compare_similarity(query_emb, centroid)
+            # 用第一个 vp 作为代表
+            rep = vps[0]
+            logger.info("[ECAPA] Compare: name=%s role=%s samples=%d score=%.4f",
+                        name, rep["role"], len(vps), score)
 
             if score > best_score:
                 best_score = score
-                best_match = vp
+                best_match = rep
 
         logger.info("[ECAPA] Best: score=%.4f >= threshold=%.2f ? %s",
                     best_score, threshold, best_score >= threshold)

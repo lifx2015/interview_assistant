@@ -5,12 +5,12 @@ import type { InterviewStatus } from '../types';
 interface Props {
   status: InterviewStatus;
   isAnalyzing: boolean;
-  disabled?: boolean;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
   onSubmitAnswer: () => void;
+  disabled?: boolean;
 }
 
 export const ControlBar: React.FC<Props> = ({

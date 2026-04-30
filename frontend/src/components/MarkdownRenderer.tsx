@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
 
 interface Props {
   content: string;
@@ -11,7 +12,7 @@ export const MarkdownRenderer: React.FC<Props> = ({ content, isStreaming }) => {
 
   return (
     <div className="markdown-body">
-      <ReactMarkdown>{content}</ReactMarkdown>
+      <ReactMarkdown rehypePlugins={[rehypeRaw]}>{content}</ReactMarkdown>
       {isStreaming && <span className="md-cursor" />}
     </div>
   );

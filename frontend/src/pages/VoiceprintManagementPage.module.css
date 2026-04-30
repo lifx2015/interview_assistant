@@ -320,3 +320,10 @@
   color: var(--text-primary);
   margin-bottom: 4px;
 }
+
+.realtime-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 4px 0 0 0;
+  text-align: center;
+}

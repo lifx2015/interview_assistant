@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAudioCapture } from '../hooks/useAudioCapture';
+import { voiceprintApi } from '../services/api';
 import styles from './VoiceprintManagementPage.module.css';
 
 interface Voiceprint {
@@ -17,24 +18,25 @@ interface ProviderInfo {
   reason?: string;
 }
 
-const FIXED_ROLE = 'interviewer';
-const FIXED_SESSION = 'global_interviewers';
-
 export const VoiceprintManagementPage: React.FC = () => {
   const [voiceprints, setVoiceprints] = useState<Voiceprint[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [currentProvider, setCurrentProvider] = useState<string>('mfcc');
-  const [isRecording, setIsRecording] = useState(false);
+  const [currentProvider, setCurrentProvider] = useState<string>('ecapa');
   const [recordingName, setRecordingName] = useState('');
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const audioChunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // WebSocket-based real-time registration
+  const wsRef = useRef<WebSocket | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Audio capture: send PCM directly to WebSocket (same path as real-time identification)
   const handleAudioData = useCallback((pcmBuffer: ArrayBuffer) => {
-    const blob = new Blob([pcmBuffer], { type: 'application/octet-stream' });
-    audioChunksRef.current.push(blob);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(pcmBuffer);
+    }
   }, []);
 
   const audio = useAudioCapture({ onAudioData: handleAudioData });
@@ -42,11 +44,8 @@ export const VoiceprintManagementPage: React.FC = () => {
   const fetchAllVoiceprints = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/voiceprint/list');
-      if (res.ok) {
-        const data = await res.json();
-        setVoiceprints(data.voiceprints || []);
-      }
+      const data = await voiceprintApi.list();
+      setVoiceprints(data.voiceprints || []);
     } catch (e) {
       console.error('Failed to fetch voiceprints:', e);
     }
@@ -55,12 +54,9 @@ export const VoiceprintManagementPage: React.FC = () => {
 
   const fetchProviders = async () => {
     try {
-      const res = await fetch('/api/voiceprint/providers');
-      if (res.ok) {
-        const data = await res.json();
-        setProviders(data.available_providers || []);
-        setCurrentProvider(data.current_provider || 'mfcc');
-      }
+      const data = await voiceprintApi.providers();
+      setProviders(data.available_providers || []);
+      setCurrentProvider(data.current_provider || 'ecapa');
     } catch (e) {
       console.error('Failed to fetch providers:', e);
     }
@@ -68,21 +64,10 @@ export const VoiceprintManagementPage: React.FC = () => {
 
   const switchProvider = async (providerId: string) => {
     try {
-      const res = await fetch('/api/voiceprint/provider', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: providerId }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentProvider(providerId);
-        setMessage(`已切换到: ${data.provider}`);
-        fetchProviders();
-      } else {
-        const err = await res.json();
-        setMessage(`切换失败: ${err.detail || '未知错误'}`);
-      }
+      const data = await voiceprintApi.switchProvider(providerId);
+      setCurrentProvider(providerId);
+      setMessage(`已切换到: ${data.provider}`);
+      fetchProviders();
     } catch (e) {
       console.error('Failed to switch provider:', e);
       setMessage('切换失败，请重试');
@@ -94,72 +79,116 @@ export const VoiceprintManagementPage: React.FC = () => {
     fetchProviders();
   }, []);
 
+  // Disconnect WebSocket on unmount
+  useEffect(() => {
+    return () => {
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, []);
+
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const connectWs = (): Promise<WebSocket> => {
+    return new Promise((resolve, reject) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        resolve(wsRef.current);
+        return;
+      }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/voiceprint-enroll`;
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        console.log('[VoiceprintPage] WebSocket connected');
+        resolve(ws);
+      };
+
+      ws.onmessage = (e) => {
+        if (e.data instanceof ArrayBuffer) return;
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === 'voiceprint_enroll_start') {
+            setMessage('请说话，正在通过实时音频流注册声纹...');
+          } else if (data.type === 'voiceprint_enroll_result') {
+            if (data.success) {
+              setMessage('实时声纹注册成功！');
+              setRecordingName('');
+              fetchAllVoiceprints();
+            } else {
+              setMessage(`实时注册失败: ${data.message || '未知错误'}`);
+            }
+            stopRecording();
+          }
+        } catch {
+          // ignore
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('[VoiceprintPage] WebSocket closed');
+      };
+
+      ws.onerror = () => {
+        setMessage('WebSocket 连接失败，请检查后端是否运行');
+        reject(new Error('WebSocket connection failed'));
+      };
+
+      wsRef.current = ws;
+    });
+  };
+
   const startRecording = async () => {
     if (!recordingName.trim()) {
       setMessage('请输入姓名');
       return;
     }
 
-    audioChunksRef.current = [];
-    setRecordingSeconds(0);
-    setIsRecording(true);
-    setMessage('');
+    try {
+      const ws = await connectWs();
 
-    await audio.start();
+      setMessage('正在连接音频流...');
+      setRecordingSeconds(0);
+      setIsRecording(true);
 
-    timerRef.current = setInterval(() => {
-      setRecordingSeconds((s) => {
-        if (s >= 10) {
-          stopRecording();
-          return s;
-        }
-        return s + 1;
-      });
-    }, 1000);
+      // Start audio capture (AudioWorklet + Int16 PCM, same as real-time identification)
+      await audio.start();
+
+      // Send enroll command to backend
+      ws.send(JSON.stringify({
+        type: 'control',
+        action: 'enroll_voiceprint',
+        name: recordingName,
+      }));
+
+      // Timer for UI feedback (auto-stop at 10s)
+      timerRef.current = setInterval(() => {
+        setRecordingSeconds((s) => {
+          if (s >= 10) {
+            stopRecording();
+            return s;
+          }
+          return s + 1;
+        });
+      }, 1000);
+    } catch {
+      setMessage('WebSocket 连接超时，请检查后端是否运行');
+    }
   };
 
-  const stopRecording = async () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-
+  const stopRecording = () => {
+    stopTimer();
     audio.stop();
     setIsRecording(false);
-
-    const audioBlob = new Blob(audioChunksRef.current, { type: 'application/octet-stream' });
-
-    if (audioBlob.size < 16000) {
-      setMessage('录制时间太短，请至少录制2秒');
-      return;
-    }
-
-    const voiceId = `interviewer_${Date.now()}`;
-    const formData = new FormData();
-    formData.append('voice_id', voiceId);
-    formData.append('role', FIXED_ROLE);
-    formData.append('name', recordingName);
-    formData.append('session_id', FIXED_SESSION);
-    formData.append('audio_file', audioBlob, 'voiceprint.pcm');
-
-    try {
-      const res = await fetch('/api/voiceprint/enroll', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (res.ok) {
-        setMessage(`面试官声纹注册成功: ${recordingName}`);
-        setRecordingName('');
-        fetchAllVoiceprints();
-      } else {
-        const err = await res.json();
-        setMessage(`注册失败: ${err.detail || '未知错误'}`);
-      }
-    } catch (e) {
-      console.error('Failed to register voiceprint:', e);
-      setMessage('注册失败，请重试');
-    }
+    // Backend auto-completes when enough audio is accumulated
+    // and sends voiceprint_enroll_result
   };
 
   const deleteVoiceprint = async (voiceId: string) => {
@@ -249,12 +278,15 @@ export const VoiceprintManagementPage: React.FC = () => {
             {isRecording ? (
               <>
                 <span className={styles['recording-dot']} />
-                录制中 {recordingSeconds}s / 10s
+                实时录制中 {recordingSeconds}s / 10s
               </>
             ) : (
-              <>🎙️ 开始录制声纹</>
+              <>🎙️ 实时录制声纹</>
             )}
           </button>
+          <p className={styles['realtime-hint']}>
+            使用与面试识别完全相同的音频通道，注册后识别准确率更高
+          </p>
 
           {message && <div className={styles.message}>{message}</div>}
         </div>
@@ -285,7 +317,7 @@ export const VoiceprintManagementPage: React.FC = () => {
                     <div className={styles['card-actions']}>
                       {vp.provider && (
                         <span className={styles['provider-tag']}>
-                          MFCC
+                          {vp.provider?.toUpperCase() || 'ECAPA'}
                         </span>
                       )}
                       <button

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
 from backend.routers import resume, interview, ws_asr, voiceprint, question_bank, job_requirement
+from backend.routers.ws_asr import _voiceprint_executor
 from backend.services import database
 from backend.services.voiceprint_service import voiceprint_service
 
@@ -27,10 +28,14 @@ async def lifespan(app: FastAPI):
 
     logger.info("[Startup] Loading voiceprints from database...")
     await voiceprint_service.load_voiceprints_from_db()
-    logger.info("[Startup] Voiceprints loaded: %d", len(voiceprint_service._recognizer.speaker_db))
+    recognizer = voiceprint_service._recognizer
+    logger.info("[Startup] Voiceprints loaded: %d", len(recognizer.speaker_db) if recognizer else 0)
 
     yield
 
+    logger.info("[Shutdown] Stopping voiceprint executor...")
+    _voiceprint_executor.shutdown(wait=True)
+    logger.info("[Shutdown] Closing database...")
     await database.close_db()
 
 

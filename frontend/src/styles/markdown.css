@@ -23,6 +23,51 @@
   color: var(--text-primary);
 }
 
+.markdown-body details {
+  margin: 6px 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.markdown-body summary {
+  cursor: pointer;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--accent-cyan);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.markdown-body summary::-webkit-details-marker {
+  display: none;
+}
+
+.markdown-body summary::before {
+  content: '▶';
+  font-size: 9px;
+  transition: transform 0.2s;
+}
+
+.markdown-body details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.markdown-body details[open] summary {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.markdown-body details > p,
+.markdown-body details > div,
+.markdown-body details > blockquote {
+  padding: 6px 12px;
+  margin: 0;
+}
+
 .markdown-body .md-cursor {
   color: var(--accent-cyan);
   animation: blink 0.8s step-end infinite;

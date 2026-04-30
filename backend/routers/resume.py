@@ -1,20 +1,25 @@
 import os
+import time
 import uuid
 from urllib.parse import quote
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from fastapi.responses import Response
 
 from backend.models.schemas import ResumeUploadResponse, CandidateInfo
 from backend.services.resume_parser import parse_resume
 from backend.services.llm_service import extract_resume_info
-from backend.routers.sessions import get_sessions
+from backend.routers.sessions import get_sessions, touch_session
 
 router = APIRouter()
 
 
 @router.post("/resume/upload", response_model=ResumeUploadResponse)
-async def upload_resume(file: UploadFile = File(...)):
+async def upload_resume(
+    file: UploadFile = File(...),
+    job_requirement_name: str = Query("", alias="job_requirement_name"),
+    job_requirement_desc: str = Query("", alias="job_requirement_desc"),
+):
     suffix = os.path.splitext(file.filename or "")[1].lower()
     if suffix not in (".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg"):
         raise HTTPException(400, "Unsupported file format. Use PDF/Word/Image.")
@@ -27,7 +32,11 @@ async def upload_resume(file: UploadFile = File(...)):
     if not raw_text.strip():
         raise HTTPException(400, "Could not extract text from file.")
 
-    candidate = await extract_resume_info(raw_text)
+    job_requirement = None
+    if job_requirement_name or job_requirement_desc:
+        job_requirement = {"name": job_requirement_name, "description": job_requirement_desc}
+
+    candidate = await extract_resume_info(raw_text, job_requirement=job_requirement)
     session_id = str(uuid.uuid4())
     sessions = get_sessions()
     sessions[session_id] = {
@@ -36,6 +45,7 @@ async def upload_resume(file: UploadFile = File(...)):
         "qa_history": [],
         "pdf_content": content if suffix == ".pdf" else None,
         "pdf_filename": file.filename,
+        "_last_access": time.time(),
     }
 
     return ResumeUploadResponse(session_id=session_id, candidate=candidate)

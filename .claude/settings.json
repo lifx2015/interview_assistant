@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(taskkill //F //PID 24848)",
+      "Bash(taskkill //F //PID 24860)",
+      "Bash(taskkill //F //PID 27404)",
+      "Bash(taskkill //F //PID 27420)",
+      "Bash(HF_ENDPOINT=https://hf-mirror.com python -m uvicorn backend.main:app --reload --port 8000)",
+      "Bash(python -c \"import dashscope.audio.asr; import inspect; print\\(inspect.getfile\\(dashscope.audio.asr\\)\\)\")",
+      "Read(//d/Program Files/python3.13/Lib/site-packages/dashscope/audio/asr/**)",
+      "Bash(python -c \"import dashscope.api_entities.dashscope_response as r; import inspect; print\\(inspect.getfile\\(r\\)\\)\")",
+      "Read(//d/Program Files/python3.13/Lib/site-packages/dashscope/api_entities/**)",
+      "Bash(python -c \"from dashscope.audio.asr import RecognitionResult; import inspect; print\\(inspect.getfile\\(RecognitionResult\\)\\)\")",
+      "Bash(python -c \"import dashscope; print\\(dashscope.__version__\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/routers/ws_asr.py', doraise=True\\); py_compile.compile\\('backend/routers/interview.py', doraise=True\\); py_compile.compile\\('backend/services/database.py', doraise=True\\); py_compile.compile\\('backend/services/voiceprint_service.py', doraise=True\\); print\\('All OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/routers/ws_asr.py', doraise=True\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/routers/ws_asr.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(python -c \"from backend.models.schemas import CandidateInfo, JobMatchResult; from backend.prompts.star_analysis import RESUME_JOB_MATCH_PROMPT; print\\('Backend imports OK'\\)\")",
+      "Bash(npm install *)"
+    ]
+  }
+}

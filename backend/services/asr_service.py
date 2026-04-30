@@ -8,7 +8,7 @@ class _ASRCallback(RecognitionCallback):
     def __init__(self, on_partial, on_sentence, on_error):
         self.on_partial = on_partial
         self.on_sentence = on_sentence
-        self.on_error = on_error
+        self._on_error_cb = on_error
 
     def on_open(self):
         pass
@@ -42,7 +42,7 @@ class _ASRCallback(RecognitionCallback):
         pass
 
     def on_error(self, result):
-        self.on_error(str(result))
+        self._on_error_cb(str(result))
 
 
 class ASRService:
@@ -64,10 +64,6 @@ class ASRService:
     def send_audio(self, audio_data: bytes):
         if self._recognition:
             self._recognition.send_audio_frame(audio_data)
-
-    def send_audio_data(self, audio_data: bytes):
-        """Alias for send_audio for backward compatibility"""
-        self.send_audio(audio_data)
 
     def stop(self):
         if self._recognition:

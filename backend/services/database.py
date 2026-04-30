@@ -1,5 +1,7 @@
+import asyncio
 import base64
 import json
+import logging
 import os
 import time
 
@@ -7,7 +9,10 @@ import aiosqlite
 
 from backend.config import settings
 
+logger = logging.getLogger(__name__)
+
 _db: aiosqlite.Connection | None = None
+_db_lock = asyncio.Lock()
 
 CREATE_INTERVIEWS_TABLE = """
 CREATE TABLE IF NOT EXISTS interviews (
@@ -84,9 +89,12 @@ def _get_db_path() -> str:
 async def get_db() -> aiosqlite.Connection:
     global _db
     if _db is None:
-        _db = await aiosqlite.connect(_get_db_path())
-        _db.row_factory = aiosqlite.Row
-        await _db.execute("PRAGMA foreign_keys = ON")
+        async with _db_lock:
+            if _db is None:
+                _db = await aiosqlite.connect(_get_db_path())
+                _db.row_factory = aiosqlite.Row
+                await _db.execute("PRAGMA foreign_keys = ON")
+                await _db.execute("PRAGMA encoding = 'UTF-8'")
     return _db
 
 
@@ -114,6 +122,8 @@ async def init_db() -> None:
         migrations.append("ALTER TABLE interviews ADD COLUMN pdf_filename TEXT")
     if "evaluation_raw" not in columns:
         migrations.append("ALTER TABLE interviews ADD COLUMN evaluation_raw TEXT NOT NULL DEFAULT ''")
+    if "recording_path" not in columns:
+        migrations.append("ALTER TABLE interviews ADD COLUMN recording_path TEXT")
 
     for sql in migrations:
         await db.execute(sql)
@@ -166,7 +176,7 @@ async def _migrate_question_banks_from_files(db: aiosqlite.Connection) -> None:
                     (q["id"], bank["id"], q["content"], q.get("category", ""), q.get("difficulty", "medium")),
                 )
         except Exception as e:
-            print(f"Failed to migrate bank {file_path}: {e}")
+            logger.error("Failed to migrate bank %s: %s", file_path, e)
 
     await db.commit()
 
@@ -194,7 +204,7 @@ async def _migrate_voiceprints_from_file(db: aiosqlite.Connection) -> None:
             )
         await db.commit()
     except Exception as e:
-        print(f"Failed to migrate voiceprints: {e}")
+        logger.error("Failed to migrate voiceprints: %s", e)
 
 
 async def close_db() -> None:
@@ -207,71 +217,52 @@ async def close_db() -> None:
 async def save_interview(data: dict) -> None:
     db = await get_db()
 
-    existing_row = await db.execute_fetchall(
-        "SELECT created_at FROM interviews WHERE session_id = ?",
-        (data["session_id"],),
-    )
-    created_at = existing_row[0]["created_at"] if existing_row else None
-
     candidate_json = json.dumps(data.get("candidate", {}), ensure_ascii=False)
     candidate_name = data.get("candidate", {}).get("name", "Unknown")
     qa_history_json = json.dumps(data.get("qa_history", []), ensure_ascii=False)
     transcript_json = json.dumps(data.get("transcript", []), ensure_ascii=False)
 
-    if created_at:
-        await db.execute(
-            """INSERT OR REPLACE INTO interviews
-               (session_id, candidate, candidate_name, resume_text, qa_history,
-                transcript, analysis_raw, evaluation_raw, questions_raw, notes,
-                pdf_content, pdf_filename, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                data["session_id"],
-                candidate_json,
-                candidate_name,
-                data.get("resume_text", ""),
-                qa_history_json,
-                transcript_json,
-                data.get("analysis_raw", ""),
-                data.get("evaluation_raw", ""),
-                data.get("questions_raw", ""),
-                data.get("notes", ""),
-                data.get("pdf_content"),
-                data.get("pdf_filename"),
-                created_at,
-            ),
-        )
-    else:
-        await db.execute(
-            """INSERT INTO interviews
-               (session_id, candidate, candidate_name, resume_text, qa_history,
-                transcript, analysis_raw, evaluation_raw, questions_raw, notes,
-                pdf_content, pdf_filename)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                data["session_id"],
-                candidate_json,
-                candidate_name,
-                data.get("resume_text", ""),
-                qa_history_json,
-                transcript_json,
-                data.get("analysis_raw", ""),
-                data.get("evaluation_raw", ""),
-                data.get("questions_raw", ""),
-                data.get("notes", ""),
-                data.get("pdf_content"),
-                data.get("pdf_filename"),
-            ),
-        )
+    recording_path_json = json.dumps(data.get("recording_paths", []), ensure_ascii=False)
+
+    await db.execute(
+        """INSERT OR REPLACE INTO interviews
+           (session_id, candidate, candidate_name, resume_text, qa_history,
+            transcript, analysis_raw, evaluation_raw, questions_raw, notes,
+            pdf_content, pdf_filename, recording_path, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   COALESCE((SELECT created_at FROM interviews WHERE session_id = ?), datetime('now')))""",
+        (
+            data["session_id"],
+            candidate_json,
+            candidate_name,
+            data.get("resume_text", ""),
+            qa_history_json,
+            transcript_json,
+            data.get("analysis_raw", ""),
+            data.get("evaluation_raw", ""),
+            data.get("questions_raw", ""),
+            data.get("notes", ""),
+            data.get("pdf_content"),
+            data.get("pdf_filename"),
+            recording_path_json,
+            data["session_id"],
+        ),
+    )
     await db.commit()
 
 
 async def list_interviews() -> list[dict]:
     db = await get_db()
     rows = await db.execute_fetchall(
-        "SELECT session_id, candidate_name, created_at FROM interviews ORDER BY created_at DESC"
+        "SELECT session_id, candidate_name, created_at, recording_path FROM interviews ORDER BY created_at DESC"
     )
-    return [dict(row) for row in rows]
+    results = []
+    for row in rows:
+        d = dict(row)
+        rp = d.get("recording_path")
+        d["recording_paths"] = json.loads(rp) if rp else []
+        results.append(d)
+    return results
 
 
 async def load_interview(session_id: str) -> dict | None:
@@ -285,9 +276,10 @@ async def load_interview(session_id: str) -> dict | None:
     row["candidate"] = json.loads(row["candidate"])
     row["qa_history"] = json.loads(row["qa_history"])
     row["transcript"] = json.loads(row["transcript"])
-    # Convert BLOB to base64 string for JSON serialization
-    if row.get("pdf_content") and isinstance(row["pdf_content"], bytes):
-        row["pdf_content"] = base64.b64encode(row["pdf_content"]).decode("utf-8")
+    rp = row.get("recording_path")
+    row["recording_paths"] = json.loads(rp) if rp else []
+    # Keep pdf_content as raw bytes — base64 encoding is handled at the API serialization layer.
+    # Converting to base64 here would cause corruption on re-save (base64 string written back as BLOB).
     return row
 
 

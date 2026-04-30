@@ -1,12 +1,15 @@
 import React, { useCallback, useState } from 'react';
 import styles from './ResumeUploader.module.css';
 import type { CandidateInfo, ResumeUploadResponse } from '../types';
+import { resumeApi } from '../services/api';
 
 interface Props {
   onUploadSuccess: (sessionId: string, candidate: CandidateInfo) => void;
+  variant?: 'default' | 'hero';
+  jobRequirement?: { name: string; description: string } | null;
 }
 
-export const ResumeUploader: React.FC<Props> = ({ onUploadSuccess }) => {
+export const ResumeUploader: React.FC<Props> = ({ onUploadSuccess, variant = 'default', jobRequirement }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,19 +20,14 @@ export const ResumeUploader: React.FC<Props> = ({ onUploadSuccess }) => {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const res = await fetch('/api/resume/upload', { method: 'POST', body: formData });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Upload failed');
-      }
-      const data: ResumeUploadResponse = await res.json();
+      const data: ResumeUploadResponse = await resumeApi.upload(formData, jobRequirement);
       onUploadSuccess(data.session_id, data.candidate);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed');
     } finally {
       setIsUploading(false);
     }
-  }, [onUploadSuccess]);
+  }, [onUploadSuccess, jobRequirement]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -45,7 +43,7 @@ export const ResumeUploader: React.FC<Props> = ({ onUploadSuccess }) => {
 
   return (
     <div
-      className={`${styles['resume-uploader']} ${isDragging ? styles.dragging : ''} ${isUploading ? styles.uploading : ''}`}
+      className={`${styles['resume-uploader']} ${variant === 'hero' ? styles.hero : ''} ${isDragging ? styles.dragging : ''} ${isUploading ? styles.uploading : ''}`}
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
@@ -56,7 +54,7 @@ export const ResumeUploader: React.FC<Props> = ({ onUploadSuccess }) => {
           <div className={styles['scan-ring']}>
             <div className={styles['scan-ring-inner']} />
             <div className={styles['scan-ring-outer']} />
-            <svg className={styles['scan-icon']} width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="1.5">
+            <svg className={styles['scan-icon']} width={variant === 'hero' ? 40 : 32} height={variant === 'hero' ? 40 : 32} viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="1.5">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
             </svg>
@@ -87,7 +85,7 @@ export const ResumeUploader: React.FC<Props> = ({ onUploadSuccess }) => {
         </div>
       ) : (
         <>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="1.5" opacity="0.6">
+          <svg width={variant === 'hero' ? 56 : 40} height={variant === 'hero' ? 56 : 40} viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="1.5" opacity="0.6">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
             <line x1="12" y1="18" x2="12" y2="12" />

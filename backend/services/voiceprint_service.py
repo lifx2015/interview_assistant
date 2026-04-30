@@ -2,13 +2,17 @@
 声纹识别服务 - 支持多种声纹识别渠道
 元数据存储在 SQLite，音频文件存储在 data/voiceprints/
 """
-import logging
-import os
 import hashlib
 import io
+import json
+import logging
+import os
+import tempfile
 import wave
 from pathlib import Path
 from typing import Optional, Dict, Tuple
+
+import numpy as np
 
 from backend.services.speaker_recognition import (
     get_default_recognizer,
@@ -39,6 +43,25 @@ def pcm_to_wav(pcm_data: bytes, sample_rate: int = 16000, sample_width: int = 2,
     return buf.getvalue()
 
 
+def pcm_file_to_wav(pcm_path: str | Path, wav_path: str | Path,
+                    sample_rate: int = 16000, sample_width: int = 2, channels: int = 1) -> None:
+    """Convert a raw PCM file to WAV without loading entire PCM into memory."""
+    pcm_size = os.path.getsize(pcm_path)
+    num_frames = pcm_size // (sample_width * channels)
+    with wave.open(str(wav_path), 'wb') as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(sample_width)
+        wf.setframerate(sample_rate)
+        # Read and write in chunks to avoid loading entire file into memory
+        chunk_size = 256 * 1024  # 256KB
+        with open(pcm_path, 'rb') as pf:
+            while True:
+                chunk = pf.read(chunk_size)
+                if not chunk:
+                    break
+                wf.writeframes(chunk)
+
+
 class VoiceprintService:
     """声纹识别服务 - 元数据存 SQLite，音频文件存磁盘"""
 
@@ -61,8 +84,6 @@ class VoiceprintService:
         recognizer = self._ensure_recognizer()
         rows = await database.list_voiceprints()
 
-        import json as json_module
-
         for r in rows:
             voice_id = r["voice_id"]
             embedding_str = r.get("embedding", "[]")
@@ -76,9 +97,8 @@ class VoiceprintService:
                     continue
 
                 try:
-                    embedding = json_module.loads(embedding_str)
+                    embedding = json.loads(embedding_str)
                     if embedding and len(embedding) == 192:
-                        import numpy as np
                         arr = np.array(embedding)
                         logger.info("[VoiceprintService] Loading embedding: voice_id=%s, norm=%.4f, first5=%s",
                                     voice_id, np.linalg.norm(arr), arr[:5])
@@ -211,7 +231,7 @@ class VoiceprintService:
     def identify_speaker(
         self,
         audio_data: bytes,
-        threshold: float = 0.56,
+        threshold: float = 0.50,
         use_cache: bool = True,
     ) -> dict:
         recognizer = self._ensure_recognizer()
@@ -238,13 +258,17 @@ class VoiceprintService:
                 f.write(wav_data)
 
             # 检查音频能量，跳过低能量（静音）
-            import numpy as np
             samples = np.frombuffer(audio_data, dtype=np.int16)
             energy = np.abs(samples).mean()
             logger.info("[VoiceprintService] Audio energy: %.1f (threshold: 50)", energy)
 
             if energy < 50:
                 logger.warning("[VoiceprintService] Audio energy too low (%.1f), likely silence or weak - skipping", energy)
+                try:
+                    if temp_file.exists():
+                        temp_file.unlink()
+                except Exception:
+                    pass
                 return {
                     "matched": False,
                     "voice_id": None,
@@ -264,8 +288,12 @@ class VoiceprintService:
             logger.info("[VoiceprintService] Temp file saved: %s (len=%d bytes)",
                         str(temp_file), len(audio_data))
 
-            # if temp_file.exists():
-            #     temp_file.unlink()
+            # 清理临时文件
+            try:
+                if temp_file.exists():
+                    temp_file.unlink()
+            except Exception:
+                pass
 
             logger.info("[VoiceprintService] Raw result: matched=%s role=%s confidence=%.4f",
                         result.get("matched"), result.get("role"), result.get("confidence", 0))
@@ -327,8 +355,12 @@ class VoiceprintService:
                 break
 
         success = await database.delete_voiceprint_db(voice_id)
-        if success and audio_file and os.path.exists(audio_file):
-            os.remove(audio_file)
+        if success:
+            # Also remove from in-memory speaker_db
+            self._ensure_recognizer().delete_voiceprint(voice_id)
+            self.clear_cache()
+            if audio_file and os.path.exists(audio_file):
+                os.remove(audio_file)
         return success
 
     async def clear_session_voiceprints(self, session_id: str = None) -> int:
@@ -338,7 +370,11 @@ class VoiceprintService:
             audio_file = r.get("audio_file")
             if audio_file and os.path.exists(audio_file):
                 os.remove(audio_file)
-        return await database.clear_voiceprints_db(target_session)
+        count = await database.clear_voiceprints_db(target_session)
+        # Also clear from in-memory speaker_db
+        self._ensure_recognizer().clear_session_voiceprints(target_session)
+        self.clear_cache()
+        return count
 
 
 # 全局声纹服务实例

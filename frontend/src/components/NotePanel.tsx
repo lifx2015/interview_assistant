@@ -6,9 +6,12 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   psychologyRaw: string;
+  onTriggerPsychology?: () => void;
+  isRecording?: boolean;
+  isPsychologyAnalyzing?: boolean;
 }
 
-export const NotePanel: React.FC<Props> = ({ value, onChange, psychologyRaw }) => {
+export const NotePanel: React.FC<Props> = ({ value, onChange, psychologyRaw, onTriggerPsychology, isRecording = false, isPsychologyAnalyzing = false }) => {
   const [activeTab, setActiveTab] = useState<'notes' | 'psychology'>('notes');
 
   return (
@@ -48,8 +51,32 @@ export const NotePanel: React.FC<Props> = ({ value, onChange, psychologyRaw }) =
           />
         ) : (
           <div className={styles['psychology-content']}>
+            {/* Re-trigger button always visible */}
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)' }}>
+              <button
+                onClick={onTriggerPsychology}
+                disabled={!isRecording || isPsychologyAnalyzing}
+                style={{
+                  width: '100%',
+                  padding: '8px 16px',
+                  border: '1px solid var(--accent-cyan)',
+                  background: 'rgba(0, 212, 255, 0.08)',
+                  color: 'var(--accent-cyan)',
+                  borderRadius: 6,
+                  cursor: isRecording && !isPsychologyAnalyzing ? 'pointer' : 'not-allowed',
+                  fontSize: 13,
+                  opacity: isRecording && !isPsychologyAnalyzing ? 1 : 0.5,
+                }}
+              >
+                {isPsychologyAnalyzing ? '⏳ 分析中...' : '🔍 分析心理状态'}
+              </button>
+              {!isRecording && <p style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>录音开始后可手动触发</p>}
+            </div>
+
             {psychologyRaw ? (
-              <MarkdownRenderer content={psychologyRaw} isStreaming={true} />
+              <div style={{ padding: '8px 12px' }}>
+                <MarkdownRenderer content={psychologyRaw} isStreaming={true} />
+              </div>
             ) : (
               <div className={styles['psychology-empty']}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
@@ -57,7 +84,6 @@ export const NotePanel: React.FC<Props> = ({ value, onChange, psychologyRaw }) =
                   <path d="M12 16v-4" />
                   <path d="M12 8h.01" />
                 </svg>
-                <p>候选人回答时将自动分析心理状态和念稿风险</p>
               </div>
             )}
           </div>

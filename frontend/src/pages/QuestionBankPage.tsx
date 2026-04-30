@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { questionBankApi } from '../services/api';
 import styles from './QuestionBankPage.module.css';
 
 interface Question {
@@ -381,20 +382,12 @@ export const QuestionBankPage: React.FC = () => {
   const fetchBanks = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/question-bank/list');
-      if (res.ok) {
-        const data = await res.json();
-        const bankList = data.banks || [];
-        const fullBanks: QuestionBank[] = [];
-        for (const bank of bankList) {
-          const detailRes = await fetch(`/api/question-bank/${bank.id}`);
-          if (detailRes.ok) {
-            const detail = await detailRes.json();
-            fullBanks.push(detail);
-          }
-        }
-        setBanks(fullBanks);
-      }
+      const data = await questionBankApi.list();
+      const bankList = data.banks || [];
+      const details = await Promise.all(
+        bankList.map((bank: any) => questionBankApi.get(bank.id).catch(() => null))
+      );
+      setBanks(details.filter((d: any) => d !== null));
     } catch (e) {
       console.error('Failed to fetch banks:', e);
     }
@@ -404,24 +397,13 @@ export const QuestionBankPage: React.FC = () => {
   // 创建新题库
   const createBank = async (name: string, description: string) => {
     try {
-      const res = await fetch('/api/question-bank/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        showToast('题库创建成功');
-        setShowCreateModal(false);
-        fetchBanks();
-        if (data.bank) {
-          const detailRes = await fetch(`/api/question-bank/${data.bank.id}`);
-          if (detailRes.ok) {
-            const detail = await detailRes.json();
-            setSelectedBank(detail);
-          }
-        }
+      const data = await questionBankApi.create({ name, description });
+      showToast('题库创建成功');
+      setShowCreateModal(false);
+      fetchBanks();
+      if (data.bank) {
+        const detail = await questionBankApi.get(data.bank.id);
+        setSelectedBank(detail);
       }
     } catch (e) {
       console.error('Failed to create bank:', e);
@@ -445,12 +427,10 @@ export const QuestionBankPage: React.FC = () => {
   const confirmDeleteBank = async () => {
     if (!bankToDelete) return;
     try {
-      const res = await fetch(`/api/question-bank/${bankToDelete}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('题库已删除');
-        if (selectedBank?.id === bankToDelete) setSelectedBank(null);
-        fetchBanks();
-      }
+      await questionBankApi.delete(bankToDelete);
+      showToast('题库已删除');
+      if (selectedBank?.id === bankToDelete) setSelectedBank(null);
+      fetchBanks();
     } catch (e) {
       console.error('Failed to delete bank:', e);
     }
@@ -466,29 +446,15 @@ export const QuestionBankPage: React.FC = () => {
     }
 
     try {
-      const res = await fetch(`/api/question-bank/${selectedBank.id}/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markdown }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        showToast(`成功导入 ${data.imported_count} 道题目`);
-        setShowImportModal(false);
-        fetchBanks();
-        const detailRes = await fetch(`/api/question-bank/${selectedBank.id}`);
-        if (detailRes.ok) {
-          const detail = await detailRes.json();
-          setSelectedBank(detail);
-        }
-      } else {
-        const err = await res.json();
-        showToast(err.detail || '导入失败');
-      }
-    } catch (e) {
+      const data = await questionBankApi.importMarkdown(selectedBank.id, { markdown });
+      showToast(`成功导入 ${data.imported_count} 道题目`);
+      setShowImportModal(false);
+      fetchBanks();
+      const detail = await questionBankApi.get(selectedBank.id);
+      setSelectedBank(detail);
+    } catch (e: any) {
       console.error('Failed to import:', e);
-      showToast('导入失败');
+      showToast(e?.message || '导入失败');
     }
   };
 
@@ -501,18 +467,11 @@ export const QuestionBankPage: React.FC = () => {
   const confirmDeleteQuestion = async () => {
     if (!selectedBank || !questionToDelete) return;
     try {
-      const res = await fetch(`/api/question-bank/${selectedBank.id}/questions/${questionToDelete}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        showToast('题目已删除');
-        fetchBanks();
-        const detailRes = await fetch(`/api/question-bank/${selectedBank.id}`);
-        if (detailRes.ok) {
-          const detail = await detailRes.json();
-          setSelectedBank(detail);
-        }
-      }
+      await questionBankApi.deleteQuestion(selectedBank.id, questionToDelete);
+      showToast('题目已删除');
+      fetchBanks();
+      const detail = await questionBankApi.get(selectedBank.id);
+      setSelectedBank(detail);
     } catch (e) {
       console.error('Failed to delete question:', e);
     }
@@ -524,25 +483,16 @@ export const QuestionBankPage: React.FC = () => {
   const updateQuestion = async () => {
     if (!selectedBank || !editingQuestion) return;
     try {
-      const res = await fetch(`/api/question-bank/${selectedBank.id}/questions/${editingQuestion.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: editingQuestion.content,
-          category: editingQuestion.category,
-          difficulty: editingQuestion.difficulty,
-        }),
+      await questionBankApi.updateQuestion(selectedBank.id, editingQuestion.id, {
+        content: editingQuestion.content,
+        category: editingQuestion.category,
+        difficulty: editingQuestion.difficulty,
       });
-      if (res.ok) {
-        showToast('题目已更新');
-        setEditingQuestion(null);
-        fetchBanks();
-        const detailRes = await fetch(`/api/question-bank/${selectedBank.id}`);
-        if (detailRes.ok) {
-          const detail = await detailRes.json();
-          setSelectedBank(detail);
-        }
-      }
+      showToast('题目已更新');
+      setEditingQuestion(null);
+      fetchBanks();
+      const detail = await questionBankApi.get(selectedBank.id);
+      setSelectedBank(detail);
     } catch (e) {
       console.error('Failed to update:', e);
     }
@@ -790,7 +740,7 @@ export const QuestionBankPage: React.FC = () => {
                               <td>
                                 <select
                                   value={editingQuestion.difficulty || 'medium'}
-                                  onChange={e => setEditingQuestion({ ...editingQuestion, difficulty: e.target.value as any })}
+                                  onChange={e => setEditingQuestion({ ...editingQuestion, difficulty: e.target.value as 'easy' | 'medium' | 'hard' })}
                                 >
                                   <option value="easy">简单</option>
                                   <option value="medium">中等</option>

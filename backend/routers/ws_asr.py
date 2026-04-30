@@ -1,188 +1,450 @@
 """
 WebSocket ASR route with voiceprint-based role detection and real-time follow-up analysis.
+Supports both single-track (voiceprint) and dual-track (AEC) interview modes.
 """
 import asyncio
 import json
 import logging
+import os
+import tempfile
 import time
+from pathlib import Path
+from typing import BinaryIO
+
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from backend.routers.sessions import get_sessions
+from backend.routers.sessions import ensure_session, get_sessions, touch_session
 from backend.services.asr_service import ASRService
+from backend.services.aec_service import AECService
 from backend.services.llm_service import (
     incremental_analyze_stream,
     interview_evaluation_stream,
     psychology_analyze_stream,
 )
-from backend.services.voiceprint_service import voiceprint_service
+from backend.services.voiceprint_service import voiceprint_service, pcm_file_to_wav
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # 声纹识别用独立线程池，完全不阻塞 asyncio 事件循环
-_voiceprint_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voiceprint")
+_voiceprint_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="voiceprint")
 
 
-_incremental_in_flight: dict[str, bool] = {}
-_incremental_pending: dict[str, str] = {}
-_incremental_start_time: dict[str, float] = {}
+def _safe_create_task(coro, name: str = "unknown"):
+    """Create an asyncio task with automatic exception logging."""
+    task = asyncio.create_task(coro)
+    def _log_exception(t):
+        exc = t.exception()
+        if isinstance(exc, asyncio.CancelledError):
+            return
+        if exc:
+            logger.error("[TaskError] %s failed: %s", name, exc, exc_info=exc)
+    task.add_done_callback(_log_exception)
+    return task
+
+
 _INCREMENTAL_TIMEOUT = 30.0
 
 
-@router.websocket("/ws/asr/{session_id}")
-async def asr_websocket(websocket: WebSocket, session_id: str):
-    try:
-        await websocket.accept()
-        logger.info("[WebSocket] Connected: session_id=%s", session_id)
-    except Exception as e:
-        logger.error("[WebSocket] Failed to accept: %s", e)
-        return
+class IncrementalTracker:
+    """Per-session incremental analysis state tracker with debouncing."""
 
-    sessions = get_sessions()
-    if session_id not in sessions:
-        await websocket.send_json({"type": "error", "data": "Invalid session"})
-        await websocket.close()
-        return
+    def __init__(self, timeout: float = 30.0):
+        self._in_flight: dict[str, bool] = {}
+        self._pending: dict[str, str] = {}
+        self._start_time: dict[str, float] = {}
+        self._timeout = timeout
 
-    session = sessions[session_id]
-    asr = ASRService()
-    result_queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_running_loop()
+    def is_in_flight(self, session_id: str) -> bool:
+        return self._in_flight.get(session_id, False)
 
-    current_role = "candidate"  # 默认为候选人，只有识别到面试官声纹才切换
-    interviewer_text: list[str] = []
-    candidate_text: list[str] = []
-    conversation_history: list[dict] = []
-    current_question = ""
+    def set_in_flight(self, session_id: str, value: bool):
+        self._in_flight[session_id] = value
 
-    has_candidate_spoken_this_round = False
-    main_question = ""
-    follow_up_questions: list[str] = []
+    def get_pending(self, session_id: str) -> str | None:
+        return self._pending.get(session_id)
 
-    # 声纹识别队列：存储未确认角色的句子
-    pending_sentences: list[dict] = []  # [{text, sentence_id, timestamp}]
-    _voiceprint_identifying = False  # 是否正在声纹识别
+    def set_pending(self, session_id: str, sentence: str):
+        self._pending[session_id] = sentence
 
-    # 声纹已在服务启动时加载，直接检查状态
-    try:
-        voiceprints = await voiceprint_service.get_global_voiceprints()
-        voiceprint_enabled = len(voiceprints) > 0
-        logger.info("[Voiceprint] Check: registered=%d, enabled=%s", len(voiceprints), voiceprint_enabled)
+    def pop_pending(self, session_id: str) -> str | None:
+        return self._pending.pop(session_id, None)
 
-        if voiceprint_enabled:
-            await websocket.send_json({
-                "type": "voiceprint_status",
-                "enabled": True,
-                "message": f"声纹识别已启用（已注册 {len(voiceprints)} 个面试官声纹）"
-            })
+    def get_start_time(self, session_id: str) -> float:
+        return self._start_time.get(session_id, 0.0)
+
+    def set_start_time(self, session_id: str, value: float):
+        self._start_time[session_id] = value
+
+    def pop_start_time(self, session_id: str):
+        self._start_time.pop(session_id, None)
+
+    def cleanup(self, session_id: str):
+        self._in_flight.pop(session_id, None)
+        self._pending.pop(session_id, None)
+        self._start_time.pop(session_id, None)
+
+
+_tracker = IncrementalTracker()
+
+
+class ASRSessionHandler:
+    """Encapsulates all per-session state and logic for the ASR WebSocket endpoint."""
+
+    VOICEPRINT_MIN_BYTES = 96000
+    VOICEPRINT_CHUNK_ENERGY_THRESHOLD = 30
+    VOICEPRINT_SWITCH_CONFIRM_COUNT = 2
+    INTERVIEWER_CONFIDENCE_THRESHOLD = 0.50
+
+    def __init__(self, websocket: WebSocket, session_id: str):
+        self.ws = websocket
+        self.session_id = session_id
+        self.session = ensure_session(session_id)
+        touch_session(session_id)
+
+        self.session_mode: str = "dual-track"
+        self.asr = ASRService()
+        self.interviewer_asr: ASRService | None = None
+        self.candidate_asr: ASRService | None = None
+        self.aec_service: AECService | None = None
+        self.asr_started = False
+
+        self.result_queue: asyncio.Queue = asyncio.Queue()
+        self.loop: asyncio.AbstractEventLoop | None = None
+
+        self.current_role = "candidate"
+        self.interviewer_text: list[str] = []
+        self.candidate_text: list[str] = []
+        self.conversation_history: list[dict] = []
+
+        self.has_candidate_spoken_this_round = False
+        self.main_question = ""
+        self.current_question = ""
+        self.follow_up_questions: list[str] = []
+
+        self.pending_sentences: list[dict] = []
+        self.voiceprint_identifying = False
+        self.voiceprint_registered = False
+        self.voiceprint_enabled = False
+
+        self.recent_audio_chunks: list[bytes] = []
+        self.voiceprint_accumulated_bytes = 0
+        self.voiceprint_switch_count = 0
+
+        self.job_requirement: dict | None = None
+        self.psychology_in_flight = False
+
+        self.forward_task: asyncio.Task | None = None
+
+        # Recording state
+        self._recording_dir = Path("data/recordings")
+        self._recording_files: dict[str, BinaryIO] = {}   # role -> open PCM file handle
+        self._recording_tmp_paths: dict[str, str] = {}     # role -> temp PCM file path
+        self._recording_initialized = False
+
+    # ── Recording ───────────────────────────────────────────
+
+    def _init_recording(self):
+        """Lazily open temp PCM files for recording on first audio chunk."""
+        if self._recording_initialized:
+            return
+        self._recording_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            if self.session_mode == "dual-track":
+                for role in ("interviewer", "candidate"):
+                    tf = tempfile.NamedTemporaryFile(
+                        suffix=".pcm", delete=False, dir=str(self._recording_dir)
+                    )
+                    self._recording_files[role] = tf
+                    self._recording_tmp_paths[role] = tf.name
+            else:
+                tf = tempfile.NamedTemporaryFile(
+                    suffix=".pcm", delete=False, dir=str(self._recording_dir)
+                )
+                self._recording_files["full"] = tf
+                self._recording_tmp_paths["full"] = tf.name
+            self._recording_initialized = True
+            logger.info("[Recording] Initialized for session %s, mode=%s",
+                        self.session_id, self.session_mode)
+        except Exception as e:
+            logger.error("[Recording] Failed to init: %s", e)
+
+    def _write_recording(self, role_key: str, pcm_data: bytes):
+        """Append PCM data to the recording file for the given role."""
+        f = self._recording_files.get(role_key)
+        if f:
+            try:
+                f.write(pcm_data)
+            except Exception as e:
+                logger.error("[Recording] Write error: %s", e)
+
+    def _finalize_recording(self):
+        """Close temp PCM files, merge into a single WAV, store path in session."""
+        if not self._recording_initialized:
+            return
+        recording_paths = []
+        try:
+            # Close all file handles first
+            for role, f in self._recording_files.items():
+                try:
+                    f.close()
+                except Exception:
+                    pass
+
+            if self.session_mode == "dual-track" and len(self._recording_tmp_paths) == 2:
+                # Merge interviewer + candidate PCM into one mono WAV
+                int_path = self._recording_tmp_paths.get("interviewer")
+                can_path = self._recording_tmp_paths.get("candidate")
+                if int_path and can_path:
+                    int_size = os.path.getsize(int_path) if os.path.exists(int_path) else 0
+                    can_size = os.path.getsize(can_path) if os.path.exists(can_path) else 0
+                    if int_size > 0 or can_size > 0:
+                        wav_name = f"{self.session_id}_full.wav"
+                        wav_path = str(self._recording_dir / wav_name)
+                        self._merge_pcm_to_wav(int_path, can_path, wav_path)
+                        recording_paths.append(wav_path)
+                        total_duration = max(int_size, can_size) / 32000
+                        logger.info("[Recording] Merged dual-track: %.1fs, %s", total_duration, wav_path)
+                # Clean up temp files
+                for tmp_path in self._recording_tmp_paths.values():
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+            else:
+                # Single-track: convert the single PCM to WAV
+                for role, tmp_path in self._recording_tmp_paths.items():
+                    if not os.path.exists(tmp_path):
+                        continue
+                    pcm_size = os.path.getsize(tmp_path)
+                    if pcm_size == 0:
+                        os.remove(tmp_path)
+                        continue
+                    wav_name = f"{self.session_id}_full.wav"
+                    wav_path = str(self._recording_dir / wav_name)
+                    pcm_file_to_wav(tmp_path, wav_path)
+                    os.remove(tmp_path)
+                    recording_paths.append(wav_path)
+                    duration = pcm_size / 32000
+                    logger.info("[Recording] Saved %s: %.1fs, %s", role, duration, wav_path)
+
+            self.session["recording_paths"] = recording_paths
+        except Exception as e:
+            logger.error("[Recording] Finalize error: %s", e)
+        finally:
+            self._recording_files.clear()
+            self._recording_tmp_paths.clear()
+            self._recording_initialized = False
+
+    @staticmethod
+    def _merge_pcm_to_wav(interviewer_pcm_path: str, candidate_pcm_path: str, wav_path: str,
+                          sample_rate: int = 16000, sample_width: int = 2):
+        """Merge two mono PCM streams into a single mono WAV by interleaving."""
+        import wave
+        int_data = b""
+        can_data = b""
+        if os.path.exists(interviewer_pcm_path):
+            with open(interviewer_pcm_path, 'rb') as f:
+                int_data = f.read()
+        if os.path.exists(candidate_pcm_path):
+            with open(candidate_pcm_path, 'rb') as f:
+                can_data = f.read()
+
+        max_len = max(len(int_data), len(can_data))
+        # Pad shorter stream with silence (zeros)
+        int_data = int_data.ljust(max_len, b'\x00')
+        can_data = can_data.ljust(max_len, b'\x00')
+
+        # Mix by averaging samples (prevents clipping)
+        int_arr = np.frombuffer(int_data, dtype=np.int16)
+        can_arr = np.frombuffer(can_data, dtype=np.int16)
+        mixed = ((int_arr.astype(np.int32) + can_arr.astype(np.int32)) // 2).astype(np.int16)
+
+        with wave.open(wav_path, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(sample_width)
+            wf.setframerate(sample_rate)
+            wf.writeframes(mixed.tobytes())
+
+    def _cleanup_recording(self):
+        """Clean up temp files on abnormal exit (no WAV conversion)."""
+        for f in self._recording_files.values():
+            try:
+                f.close()
+            except Exception:
+                pass
+        for tmp_path in self._recording_tmp_paths.values():
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+        self._recording_files.clear()
+        self._recording_tmp_paths.clear()
+        self._recording_initialized = False
+
+    # ── ASR lifecycle ──────────────────────────────────────
+
+    def stop_asr(self):
+        if self.session_mode == "dual-track":
+            if self.interviewer_asr:
+                try: self.interviewer_asr.stop()
+                except Exception: pass
+            if self.candidate_asr:
+                try: self.candidate_asr.stop()
+                except Exception: pass
         else:
-            await websocket.send_json({
-                "type": "voiceprint_status",
-                "enabled": False,
-                "message": "请先在声纹管理页面注册面试官声纹"
-            })
-    except Exception as e:
-        logger.error("[Voiceprint] Check failed: %s", e)
-        voiceprint_enabled = False
+            if self.asr_started:
+                try: self.asr.stop()
+                except Exception: pass
+        self.asr_started = False
 
-    recent_audio_chunks: list[bytes] = []
-    voiceprint_accumulated_bytes = 0
-    VOICEPRINT_MIN_BYTES = 96000  # 3秒音频才触发（提高质量）
-    INTERVIEWER_CONFIDENCE_THRESHOLD = 0.56  # 基于实测：同一人得分0.60-0.64，不同人为负值
+    def start_asr(self):
+        if self.session_mode == "dual-track":
+            if not self.asr_started:
+                self.candidate_asr.start(
+                    on_partial=self._on_candidate_partial,
+                    on_sentence=self._on_candidate_sentence,
+                    on_error=self._on_error,
+                )
+                self.interviewer_asr.start(
+                    on_partial=self._on_interviewer_partial,
+                    on_sentence=self._on_interviewer_sentence,
+                    on_error=self._on_error,
+                )
+                self.asr_started = True
+                logger.info("[ASR] Dual-track ASR started")
+        else:
+            if not self.asr_started:
+                try:
+                    self.asr.start(
+                        on_partial=self._on_partial,
+                        on_sentence=self._on_sentence,
+                        on_error=self._on_error,
+                    )
+                    self.asr_started = True
+                    logger.info("[ASR] Started")
+                except Exception as e:
+                    logger.error("[ASR] Failed to start: %s", e)
 
-    job_requirement: dict | None = None
+    # ── State reset helpers ────────────────────────────────
 
-    _last_analysis_time = 0.0
-    _last_analysis_accumulated = 0
-    _ANALYSIS_MIN_SENTENCE_LEN = 30
-    _ANALYSIS_ACCUMULATED_INTERVAL = 150
-    _ANALYSIS_TIME_GAP = 15.0
-
-    _psychology_in_flight = False
-    _psychology_trigger_count = 0
-    _PSYCHOLOGY_TRIGGER_INTERVAL = 3
-
-    def reset_voiceprint_state(clear_chunks: bool = True):
-        nonlocal recent_audio_chunks, voiceprint_accumulated_bytes
-        voiceprint_accumulated_bytes = 0
+    def reset_voiceprint_state(self, clear_chunks: bool = True):
+        self.voiceprint_accumulated_bytes = 0
         if clear_chunks:
-            recent_audio_chunks = []
+            self.recent_audio_chunks = []
 
-    def reset_round_state():
-        nonlocal has_candidate_spoken_this_round
-        nonlocal main_question
-        nonlocal follow_up_questions
-        nonlocal current_question
-        nonlocal _last_analysis_time
-        nonlocal _last_analysis_accumulated
-        nonlocal _psychology_trigger_count
-        has_candidate_spoken_this_round = False
-        main_question = ""
-        follow_up_questions = []
-        current_question = ""
-        _last_analysis_time = 0.0
-        _last_analysis_accumulated = 0
-        _psychology_trigger_count = 0
-        reset_voiceprint_state()
+    def reset_round_state(self):
+        self.has_candidate_spoken_this_round = False
+        self.main_question = ""
+        self.follow_up_questions = []
+        self.current_question = ""
+        self.reset_voiceprint_state()
 
-    def on_partial(text: str, sentence_id: int):
+    # ── ASR callbacks (single-track) ───────────────────────
+
+    def _on_partial(self, text: str, sentence_id: int):
         partial_time = time.monotonic()
         logger.debug("[TIMING] on_partial callback: text_len=%d, time=%.3f", len(text), partial_time)
         asyncio.run_coroutine_threadsafe(
-            result_queue.put(
-                {
-                    "type": "partial",
-                    "text": text,
-                    "sentence_id": sentence_id,
-                    "role": current_role,
-                }
-            ),
-            loop,
-        )
-
-    def on_sentence(text: str, sentence_id: int):
-        sentence_time = time.monotonic()
-        logger.info("[TIMING] on_sentence: text='%s' time=%.3f, voiceprint_identifying=%s",
-                    text[:50] if text else "", sentence_time, _voiceprint_identifying)
-
-        # 加入待确认队列
-        pending_sentences.append({
-            "text": text,
-            "sentence_id": sentence_id,
-            "timestamp": sentence_time,
-        })
-
-        # 发送 pending 状态给前端
-        asyncio.run_coroutine_threadsafe(
-            result_queue.put({
-                "type": "sentence_pending",
+            self.result_queue.put({
+                "type": "partial",
                 "text": text,
                 "sentence_id": sentence_id,
+                "role": self.current_role,
             }),
-            loop,
+            self.loop,
         )
 
-    def on_error(msg: str):
+    def _on_sentence(self, text: str, sentence_id: int):
+        sentence_time = time.monotonic()
+        logger.info("[TIMING] on_sentence: text='%s' time=%.3f, voiceprint_identifying=%s, voiceprint_enabled=%s",
+                    text[:50] if text else "", sentence_time, self.voiceprint_identifying, self.voiceprint_enabled)
+
+        if self.voiceprint_enabled:
+            self.pending_sentences.append({
+                "text": text,
+                "sentence_id": sentence_id,
+                "timestamp": sentence_time,
+            })
+            asyncio.run_coroutine_threadsafe(
+                self.result_queue.put({
+                    "type": "sentence_pending",
+                    "text": text,
+                    "sentence_id": sentence_id,
+                }),
+                self.loop,
+            )
+        else:
+            asyncio.run_coroutine_threadsafe(
+                self.result_queue.put({
+                    "type": "sentence_confirmed",
+                    "text": text,
+                    "sentence_id": sentence_id,
+                    "role": self.current_role,
+                }),
+                self.loop,
+            )
+
+    def _on_error(self, msg: str):
         asyncio.run_coroutine_threadsafe(
-            result_queue.put({"type": "error", "data": msg}),
-            loop,
+            self.result_queue.put({"type": "error", "data": msg}),
+            self.loop,
         )
 
-    asr_started = False
+    # ── ASR callbacks (dual-track) ─────────────────────────
 
-    async def run_voiceprint_identification(audio_data: bytes):
-        """在独立线程中执行声纹识别，完成后确认所有 pending 句子"""
-        nonlocal current_role, _voiceprint_identifying, pending_sentences
+    def _on_interviewer_partial(self, text: str, sentence_id: int):
+        asyncio.run_coroutine_threadsafe(
+            self.result_queue.put({
+                "type": "partial", "text": text,
+                "sentence_id": sentence_id, "role": "interviewer",
+            }),
+            self.loop,
+        )
+
+    def _on_interviewer_sentence(self, text: str, sentence_id: int):
+        asyncio.run_coroutine_threadsafe(
+            self.result_queue.put({
+                "type": "sentence", "text": text,
+                "sentence_id": sentence_id, "role": "interviewer",
+            }),
+            self.loop,
+        )
+
+    def _on_candidate_partial(self, text: str, sentence_id: int):
+        asyncio.run_coroutine_threadsafe(
+            self.result_queue.put({
+                "type": "partial", "text": text,
+                "sentence_id": sentence_id, "role": "candidate",
+            }),
+            self.loop,
+        )
+
+    def _on_candidate_sentence(self, text: str, sentence_id: int):
+        asyncio.run_coroutine_threadsafe(
+            self.result_queue.put({
+                "type": "sentence", "text": text,
+                "sentence_id": sentence_id, "role": "candidate",
+            }),
+            self.loop,
+        )
+
+    # ── Voiceprint identification ──────────────────────────
+
+    async def run_voiceprint_identification(self, audio_data: bytes):
         logger.info("[VOICEPRINT-TASK] START audio_len=%d, pending_sentences=%d",
-                    len(audio_data), len(pending_sentences))
-        _voiceprint_identifying = True
+                    len(audio_data), len(self.pending_sentences))
+        self.voiceprint_identifying = True
 
         def do_identification():
             logger.info("[VOICEPRINT-THREAD] Running identification...")
             try:
-                result = voiceprint_service.identify_speaker(audio_data=audio_data, threshold=INTERVIEWER_CONFIDENCE_THRESHOLD)
+                result = voiceprint_service.identify_speaker(
+                    audio_data=audio_data,
+                    threshold=self.INTERVIEWER_CONFIDENCE_THRESHOLD,
+                )
                 logger.info("[VOICEPRINT-THREAD] Result: matched=%s role=%s confidence=%.2f",
                             result.get("matched"), result.get("role"), result.get("confidence", 0))
                 return result
@@ -194,75 +456,98 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
             result = await asyncio.get_running_loop().run_in_executor(_voiceprint_executor, do_identification)
         except Exception as e:
             logger.error("[VOICEPRINT-TASK] Executor failed: %s", e)
-            _voiceprint_identifying = False
+            self.voiceprint_identifying = False
             return
 
         if result is None:
-            logger.warning("[VOICEPRINT-TASK] No result, using current_role=%s", current_role)
+            logger.warning("[VOICEPRINT-TASK] No result, using current_role=%s", self.current_role)
         else:
             matched = bool(result.get("matched"))
             confidence = float(result.get("confidence", 0.0) or 0.0)
 
-            if matched and result.get("role") == "interviewer" and confidence >= INTERVIEWER_CONFIDENCE_THRESHOLD:
-                new_role = "interviewer"
+            if matched and result.get("role") == "interviewer" and confidence >= self.INTERVIEWER_CONFIDENCE_THRESHOLD:
+                detected_role = "interviewer"
             else:
-                new_role = "candidate"
+                detected_role = "candidate"
 
-            if new_role != current_role:
-                logger.info("[VOICEPRINT-TASK] ROLE CHANGE: %s -> %s", current_role, new_role)
-                current_role = new_role
-                await websocket.send_json({
-                    "type": "role_switched",
-                    "role": current_role,
-                    "detected_by": "voiceprint",
-                    "confidence": confidence,
-                })
+            HIGH_CONFIDENCE = 0.55
+            if detected_role != self.current_role:
+                if confidence >= HIGH_CONFIDENCE:
+                    logger.info("[VOICEPRINT-TASK] HIGH CONFIDENCE switch: %s -> %s (confidence=%.2f)",
+                                self.current_role, detected_role, confidence)
+                    self.current_role = detected_role
+                    self.voiceprint_switch_count = 0
+                    await self.ws.send_json({
+                        "type": "role_switched",
+                        "role": self.current_role,
+                        "detected_by": "voiceprint",
+                        "confidence": confidence,
+                    })
+                else:
+                    self.voiceprint_switch_count += 1
+                    logger.info("[VOICEPRINT-TASK] Switch attempt %d/%d: %s -> %s (confidence=%.2f)",
+                                self.voiceprint_switch_count, self.VOICEPRINT_SWITCH_CONFIRM_COUNT,
+                                self.current_role, detected_role, confidence)
 
-        # 确认所有 pending 句子的角色
-        confirmed_role = current_role
+                    if self.voiceprint_switch_count >= self.VOICEPRINT_SWITCH_CONFIRM_COUNT:
+                        logger.info("[VOICEPRINT-TASK] ROLE CHANGE CONFIRMED: %s -> %s", self.current_role, detected_role)
+                        self.current_role = detected_role
+                        self.voiceprint_switch_count = 0
+                        await self.ws.send_json({
+                            "type": "role_switched",
+                            "role": self.current_role,
+                            "detected_by": "voiceprint",
+                            "confidence": confidence,
+                        })
+            else:
+                self.voiceprint_switch_count = 0
+
+        confirmed_role = self.current_role
         logger.info("[VOICEPRINT-TASK] Confirming %d pending sentences as role=%s",
-                    len(pending_sentences), confirmed_role)
+                    len(self.pending_sentences), confirmed_role)
 
-        for sent in pending_sentences:
-            await websocket.send_json({
+        for sent in self.pending_sentences:
+            await self.result_queue.put({
                 "type": "sentence_confirmed",
                 "text": sent["text"],
                 "sentence_id": sent["sentence_id"],
                 "role": confirmed_role,
             })
 
-        pending_sentences.clear()
-        _voiceprint_identifying = False
+        self.pending_sentences.clear()
+        self.voiceprint_identifying = False
         logger.info("[VOICEPRINT-TASK] END")
 
-    async def run_incremental_analysis(sentence: str):
-        if _incremental_in_flight.get(session_id):
-            start_time = _incremental_start_time.get(session_id, 0)
+    # ── Incremental analysis ───────────────────────────────
+
+    async def run_incremental_analysis(self, sentence: str):
+        if _tracker.is_in_flight(self.session_id):
+            start_time = _tracker.get_start_time(self.session_id)
             if time.monotonic() - start_time > _INCREMENTAL_TIMEOUT:
-                _incremental_in_flight[session_id] = False
-                _incremental_start_time.pop(session_id, None)
+                _tracker.set_in_flight(self.session_id, False)
+                _tracker.pop_start_time(self.session_id)
             else:
-                _incremental_pending[session_id] = sentence
+                _tracker.set_pending(self.session_id, sentence)
                 return
 
-        _incremental_in_flight[session_id] = True
-        _incremental_start_time[session_id] = time.monotonic()
+        _tracker.set_in_flight(self.session_id, True)
+        _tracker.set_start_time(self.session_id, time.monotonic())
         try:
-            await _do_incremental_analysis(sentence)
-            pending = _incremental_pending.pop(session_id, None)
+            await self._do_incremental_analysis(sentence)
+            pending = _tracker.pop_pending(self.session_id)
             if pending:
-                await run_incremental_analysis(pending)
+                await self.run_incremental_analysis(pending)
         finally:
-            _incremental_in_flight[session_id] = False
-            _incremental_start_time.pop(session_id, None)
+            _tracker.set_in_flight(self.session_id, False)
+            _tracker.pop_start_time(self.session_id)
 
-    async def _do_incremental_analysis(sentence: str):
-        accumulated = "".join(candidate_text)
-        resume_ctx = session.get("resume_text", "")
+    async def _do_incremental_analysis(self, sentence: str):
+        accumulated = "".join(self.candidate_text)
+        resume_ctx = self.session.get("resume_text", "")
 
-        question_context = current_question
-        if follow_up_questions:
-            question_context += "\n[追问] " + " ".join(follow_up_questions[-3:])
+        question_context = self.current_question
+        if self.follow_up_questions:
+            question_context += "\n[追问] " + " ".join(self.follow_up_questions[-3:])
         if not question_context.strip():
             fallback_answer = accumulated[-300:] if accumulated else sentence
             question_context = f"[当前问题上下文缺失]\n[候选人当前回答片段] {fallback_answer}"
@@ -273,244 +558,487 @@ async def asr_websocket(websocket: WebSocket, session_id: str):
                 current_sentence=sentence,
                 accumulated_answer=accumulated,
                 current_question=question_context,
-                conversation_history=conversation_history,
+                conversation_history=self.conversation_history,
             ):
-                await websocket.send_json({"type": "follow_up_stream", "data": chunk})
-            await websocket.send_json({"type": "follow_up_complete"})
+                await self.ws.send_json({"type": "follow_up_stream", "data": chunk})
+            await self.ws.send_json({"type": "follow_up_complete"})
         except Exception as e:
             logger.exception("Incremental analysis failed")
-            await websocket.send_json({"type": "error", "data": f"Incremental analysis failed: {str(e)}"})
+            await self.ws.send_json({"type": "error", "data": f"Incremental analysis failed: {str(e)}"})
 
-    async def run_psychology_analysis(sentence: str):
-        nonlocal _psychology_in_flight
-        if _psychology_in_flight:
+    # ── Psychology analysis ────────────────────────────────
+
+    async def run_psychology_analysis(self, sentence: str):
+        if self.psychology_in_flight:
             return
-        _psychology_in_flight = True
+        self.psychology_in_flight = True
         try:
-            accumulated = "".join(candidate_text)
-            resume_ctx = session.get("resume_text", "")
+            accumulated = "".join(self.candidate_text)
+            resume_ctx = self.session.get("resume_text", "")
 
-            question_context = current_question
-            if follow_up_questions:
-                question_context += "\n[追问] " + " ".join(follow_up_questions[-3:])
+            question_context = self.current_question
+            if self.follow_up_questions:
+                question_context += "\n[追问] " + " ".join(self.follow_up_questions[-3:])
 
-            await websocket.send_json({"type": "psychology_start"})
+            await self.ws.send_json({"type": "psychology_start"})
             async for chunk in psychology_analyze_stream(
                 resume_context=resume_ctx,
                 current_question=question_context,
                 recent_sentences=sentence,
                 accumulated_answer=accumulated,
             ):
-                await websocket.send_json({"type": "psychology_stream", "data": chunk})
-            await websocket.send_json({"type": "psychology_complete"})
+                await self.ws.send_json({"type": "psychology_stream", "data": chunk})
+            await self.ws.send_json({"type": "psychology_complete"})
         except Exception:
             logger.exception("Psychology analysis failed")
         finally:
-            _psychology_in_flight = False
+            self.psychology_in_flight = False
+
+    # ── Manual trigger variants (bypass in-flight guards) ──
+
+    async def _run_manual_incremental(self, sentence: str):
+        """Manual trigger: always runs, bypasses in-flight debounce."""
+        try:
+            await self._do_incremental_analysis(sentence)
+        except Exception as e:
+            logger.exception("Manual incremental analysis failed")
+            await self.ws.send_json({"type": "error", "data": f"追问分析失败: {str(e)}"})
+
+    async def _run_manual_psychology(self, sentence: str):
+        """Manual trigger: always runs, bypasses in-flight guard."""
+        try:
+            accumulated = "".join(self.candidate_text)
+            resume_ctx = self.session.get("resume_text", "")
+
+            question_context = self.current_question
+            if self.follow_up_questions:
+                question_context += "\n[追问] " + " ".join(self.follow_up_questions[-3:])
+            if not question_context.strip():
+                fallback_answer = accumulated[-300:] if accumulated else sentence
+                question_context = f"[当前问题上下文缺失]\n[候选人当前回答片段] {fallback_answer}"
+
+            async for chunk in psychology_analyze_stream(
+                resume_context=resume_ctx,
+                current_question=question_context,
+                recent_sentences=sentence,
+                accumulated_answer=accumulated,
+            ):
+                await self.ws.send_json({"type": "psychology_stream", "data": chunk})
+            await self.ws.send_json({"type": "psychology_complete"})
+        except Exception:
+            logger.exception("Manual psychology analysis failed")
+
+    # ── Forward results task ───────────────────────────────
+
+    async def _forward_results(self):
+        logger.info("[FORWARD] Task started")
+        try:
+            while True:
+                item = await self.result_queue.get()
+                forward_time = time.monotonic()
+                logger.debug("[TIMING] forward_results: type=%s role=%s time=%.3f",
+                             item["type"], item.get("role"), forward_time)
+
+                if item["type"] == "error":
+                    await self.ws.send_json(item)
+                    continue
+
+                await self.ws.send_json(item)
+                send_time = time.monotonic() - forward_time
+                logger.debug("[TIMING] websocket.send_json took %.3fms", send_time * 1000)
+
+                if item["type"] not in ("sentence", "sentence_confirmed"):
+                    continue
+
+                if item["role"] == "interviewer":
+                    self.interviewer_text.append(item["text"])
+                    if self.has_candidate_spoken_this_round:
+                        self.follow_up_questions.append(item["text"])
+                    else:
+                        self.main_question += item["text"]
+                    self.current_question = self.main_question
+                    continue
+
+                self.candidate_text.append(item["text"])
+                self.has_candidate_spoken_this_round = True
+        except asyncio.CancelledError:
+            logger.info("[ForwardResults] Task cancelled")
+        except Exception as e:
+            logger.error("[ForwardResults] Task error: %s", e)
+
+    # ── Binary message handling ────────────────────────────
+
+    async def _handle_binary(self, audio_data: bytes):
+        if len(audio_data) == 0:
+            return
+
+        self._init_recording()
+
+        if self.session_mode == "dual-track":
+            role_byte = audio_data[0]
+            pcm_data = audio_data[1:]
+
+            if not self.asr_started:
+                self.start_asr()
+
+            if role_byte == 0x01:
+                # Mic audio → interviewer ASR immediately (no AEC blocking)
+                if self.asr_started:
+                    self.interviewer_asr.send_audio(pcm_data)
+                # Also feed to AEC buffer (for future AEC-enabled path)
+                self.aec_service.feed_mic(pcm_data)
+                self._write_recording("interviewer", pcm_data)
+            elif role_byte == 0x02:
+                # System audio → candidate ASR immediately
+                self.candidate_asr.send_audio(pcm_data)
+                # Feed to AEC buffer as reference
+                self.aec_service.feed_sys(pcm_data)
+                self._write_recording("candidate", pcm_data)
+        else:
+            audio_len = len(audio_data)
+            recv_time = time.monotonic()
+            logger.debug("[TIMING] recv audio: len=%d, time=%.3f", audio_len, recv_time)
+
+            self.start_asr()
+            try:
+                asr_send_start = time.monotonic()
+                self.asr.send_audio(audio_data)
+                asr_send_time = time.monotonic() - asr_send_start
+                logger.debug("[TIMING] asr.send took %.3fms", asr_send_time * 1000)
+            except Exception as e:
+                logger.error("[ASR] Failed to send: %s", e)
+
+            self._write_recording("full", audio_data)
+
+            if self.voiceprint_enabled:
+                _samples = np.frombuffer(audio_data, dtype=np.int16)
+                _chunk_energy = np.abs(_samples).mean()
+
+                if _chunk_energy >= self.VOICEPRINT_CHUNK_ENERGY_THRESHOLD:
+                    self.recent_audio_chunks.append(audio_data)
+                    self.voiceprint_accumulated_bytes += audio_len
+                    if self.voiceprint_accumulated_bytes % 32000 < audio_len:
+                        logger.info("[VOICEPRINT] Accumulated %.1fs effective audio (chunk_energy=%.0f)",
+                                    self.voiceprint_accumulated_bytes / 32000, _chunk_energy)
+
+                if self.voiceprint_accumulated_bytes >= self.VOICEPRINT_MIN_BYTES:
+                    combined_audio = b"".join(self.recent_audio_chunks)
+                    logger.info("[VOICEPRINT] Trigger with %.1fs effective audio, current_role=%s",
+                                self.voiceprint_accumulated_bytes / 32000, self.current_role)
+                    _safe_create_task(self.run_voiceprint_identification(combined_audio), "voiceprint_identification")
+                    self.recent_audio_chunks = []
+                    self.voiceprint_accumulated_bytes = 0
+
+    # ── Control message handling ───────────────────────────
+
+    async def _handle_control(self, msg: dict):
+        action = msg.get("action", "")
+
+        if action == "set_mode":
+            self.session_mode = msg.get("mode", "single-track")
+            logger.info("[WebSocket] Mode set to: %s", self.session_mode)
+            self.session["mode"] = self.session_mode
+
+            self.stop_asr()
+            self.voiceprint_enabled = self.session_mode == "single-track" and self.voiceprint_registered
+
+            if self.session_mode == "dual-track":
+                self.interviewer_asr = ASRService()
+                self.candidate_asr = ASRService()
+                self.aec_service = AECService()
+
+                await self.ws.send_json({
+                    "type": "mode_status",
+                    "mode": "dual-track",
+                    "message": "双轨模式已启用，角色由音频源自动区分",
+                    "aec_available": AECService.is_available(),
+                })
+            else:
+                await self.ws.send_json({
+                    "type": "voiceprint_status",
+                    "enabled": self.voiceprint_registered,
+                    "message": f"声纹识别已启用（已注册面试官声纹）" if self.voiceprint_registered else "请先在声纹管理页面注册面试官声纹"
+                })
+                await self.ws.send_json({
+                    "type": "mode_status",
+                    "mode": "single-track",
+                    "message": "单轨模式已启用，角色由声纹识别区分",
+                })
+
+        elif action == "set_job_requirement":
+            self.job_requirement = msg.get("job_requirement")
+
+        elif action == "trigger_follow_up":
+            accumulated = "".join(self.candidate_text)
+            if accumulated.strip():
+                last_sentence = self.candidate_text[-1] if self.candidate_text else accumulated[-200:]
+                # Clear previous follow-up result before starting new analysis
+                await self.ws.send_json({"type": "follow_up_clear"})
+                _safe_create_task(self._run_manual_incremental(last_sentence), "incremental_analysis")
+
+        elif action == "trigger_psychology":
+            accumulated = "".join(self.candidate_text)
+            if accumulated.strip():
+                last_sentence = self.candidate_text[-1] if self.candidate_text else accumulated[-200:]
+                # Clear previous psychology result before starting new analysis
+                await self.ws.send_json({"type": "psychology_start"})
+                _safe_create_task(self._run_manual_psychology(last_sentence), "psychology_analysis")
+
+        elif action == "answer_complete":
+            self.stop_asr()
+            _tracker.cleanup(self.session_id)
+
+            full_answer = "".join(self.candidate_text)
+            full_question = "".join(self.interviewer_text)
+            self.candidate_text.clear()
+            self.interviewer_text.clear()
+            self.reset_round_state()
+
+            self.conversation_history.append({"question": full_question, "answer": full_answer})
+            await self.ws.send_json({"type": "follow_up_clear"})
+
+            self.session["qa_history"].append({"question": full_question, "answer": full_answer})
+            await self.ws.send_json({
+                "type": "answer_complete_ack",
+                "question": full_question,
+                "answer": full_answer,
+            })
+
+        elif action == "pause":
+            self.stop_asr()
+
+        elif action == "resume":
+            self.start_asr()
+
+        elif action == "stop":
+            self.stop_asr()
+            self.reset_voiceprint_state()
+            _tracker.cleanup(self.session_id)
+            self._finalize_recording()
+
+            resume_ctx = self.session.get("resume_text", "")
+            qa = self.session.get("qa_history", [])
+
+            if qa:
+                await self.ws.send_json({"type": "evaluation_start"})
+                async for chunk in interview_evaluation_stream(
+                    resume_context=resume_ctx,
+                    qa_history=qa,
+                    job_requirement=self.job_requirement,
+                ):
+                    await self.ws.send_json({"type": "evaluation_stream", "data": chunk})
+                await self.ws.send_json({"type": "evaluation_complete"})
+
+            return True  # signal to break the message loop
+
+        return False
+
+    # ── Session init ───────────────────────────────────────
+
+    async def _init_session(self):
+        try:
+            voiceprints = await voiceprint_service.get_global_voiceprints()
+            self.voiceprint_registered = len(voiceprints) > 0
+            logger.info("[Voiceprint] Check: registered=%d", len(voiceprints))
+
+            await self.ws.send_json({
+                "type": "voiceprint_status",
+                "enabled": self.voiceprint_registered,
+                "message": f"声纹识别已启用（已注册 {len(voiceprints)} 个面试官声纹）" if self.voiceprint_registered else "请先在声纹管理页面注册面试官声纹"
+            })
+        except Exception as e:
+            logger.error("[Voiceprint] Check failed: %s", e)
+            self.voiceprint_registered = False
+
+        self.voiceprint_enabled = self.session_mode == "single-track" and self.voiceprint_registered
+
+        if self.session_mode != "single-track":
+            await self.ws.send_json({
+                "type": "mode_status",
+                "mode": "dual-track",
+                "message": "双轨模式已启用，角色由音频源自动区分",
+                "aec_available": AECService.is_available(),
+            })
+
+    # ── Cleanup ────────────────────────────────────────────
+
+    def _cleanup(self):
+        self.stop_asr()
+        self._cleanup_recording()
+        if self.session_mode == "dual-track" and self.aec_service:
+            self.aec_service.reset()
+        if self.forward_task is not None:
+            self.forward_task.cancel()
+        _tracker.cleanup(self.session_id)
+
+    # ── Main run loop ──────────────────────────────────────
+
+    async def run(self):
+        try:
+            await self.ws.accept()
+            logger.info("[WebSocket] Connected: session_id=%s", self.session_id)
+        except Exception as e:
+            logger.error("[WebSocket] Failed to accept: %s", e)
+            return
+
+        self.loop = asyncio.get_running_loop()
+        await self._init_session()
+
+        try:
+            self.forward_task = _safe_create_task(self._forward_results(), "forward_results")
+            logger.info("[WebSocket] Starting main loop for session %s", self.session_id)
+
+            while True:
+                try:
+                    raw = await self.ws.receive()
+                    logger.debug("[WebSocket] Received raw message type: %s", list(raw.keys()))
+                except Exception as e:
+                    logger.error("[WebSocket] Error receiving message: %s", e)
+                    break
+
+                if "bytes" in raw and raw["bytes"]:
+                    await self._handle_binary(raw["bytes"])
+                    continue
+
+                if "text" not in raw or not raw["text"]:
+                    continue
+
+                msg = json.loads(raw["text"])
+                if msg.get("type") != "control":
+                    continue
+
+                should_stop = await self._handle_control(msg)
+                if should_stop:
+                    break
+
+        except WebSocketDisconnect:
+            logger.debug("[WebSocket] Client disconnected normally")
+        except RuntimeError as e:
+            if "disconnect" in str(e).lower():
+                logger.error("[WebSocket] Connection closed: %s", e)
+            else:
+                logger.error("[WebSocket] Unexpected RuntimeError: %s", e)
+        finally:
+            self._cleanup()
+
+
+@router.websocket("/ws/asr/{session_id}")
+async def asr_websocket(websocket: WebSocket, session_id: str):
+    handler = ASRSessionHandler(websocket, session_id)
+    await handler.run()
+
+
+@router.websocket("/ws/voiceprint-enroll")
+async def voiceprint_enroll_websocket(websocket: WebSocket):
+    """独立的声纹注册 WebSocket，不需要面试 session。
+    前端声纹管理页面使用此连接，通过 AudioWorklet Int16 PCM 流注册声纹，
+    确保注册和识别使用完全相同的音频通道。
+    """
+    try:
+        await websocket.accept()
+        logger.info("[VoiceprintEnroll-WS] Connected")
+    except Exception as e:
+        logger.error("[VoiceprintEnroll-WS] Failed to accept: %s", e)
+        return
+
+    CHUNK_ENERGY_THRESHOLD = 30
+    ENROLL_MIN_BYTES = 96000  # 3秒有效语音
+
+    enrolling = False
+    enroll_name = ""
+    enroll_chunks: list[bytes] = []
+    enroll_bytes = 0
 
     try:
-        async def forward_results():
-            nonlocal has_candidate_spoken_this_round
-            nonlocal main_question
-            nonlocal current_question
-            nonlocal follow_up_questions
-            nonlocal _last_analysis_time
-            nonlocal _last_analysis_accumulated
-            nonlocal _psychology_trigger_count
-
-            logger.info("[FORWARD] Task started")
-            try:
-                while True:
-                    item = await result_queue.get()
-                    forward_time = time.monotonic()
-                    logger.debug("[TIMING] forward_results: type=%s role=%s time=%.3f", item["type"], item.get("role"), forward_time)
-
-                    # 直接发送，不暂存
-                    if item["type"] == "error":
-                        await websocket.send_json(item)
-                        continue
-
-                    await websocket.send_json(item)
-                    send_time = time.monotonic() - forward_time
-                    logger.debug("[TIMING] websocket.send_json took %.3fms", send_time * 1000)
-
-                    if item["type"] != "sentence":
-                        continue
-
-                    if item["role"] == "interviewer":
-                        interviewer_text.append(item["text"])
-                        if has_candidate_spoken_this_round:
-                            follow_up_questions.append(item["text"])
-                        else:
-                            main_question += item["text"]
-                        current_question = main_question
-                        continue
-
-                    candidate_text.append(item["text"])
-                    has_candidate_spoken_this_round = True
-
-                    accumulated_len = sum(len(s) for s in candidate_text)
-                    now = time.monotonic()
-                    time_since_last = now - _last_analysis_time if _last_analysis_time > 0 else float("inf")
-                    len_since_last = accumulated_len - _last_analysis_accumulated
-
-                    should_trigger = False
-                    if len(item["text"]) >= _ANALYSIS_MIN_SENTENCE_LEN:
-                        should_trigger = True
-                    elif len_since_last >= _ANALYSIS_ACCUMULATED_INTERVAL:
-                        should_trigger = True
-                    elif time_since_last >= _ANALYSIS_TIME_GAP and accumulated_len > 50:
-                        should_trigger = True
-
-                    if should_trigger:
-                        _last_analysis_time = now
-                        _last_analysis_accumulated = accumulated_len
-                        asyncio.create_task(run_incremental_analysis(item["text"]))
-
-                        _psychology_trigger_count += 1
-                        if _psychology_trigger_count >= _PSYCHOLOGY_TRIGGER_INTERVAL:
-                            _psychology_trigger_count = 0
-                            asyncio.create_task(run_psychology_analysis(item["text"]))
-            except asyncio.CancelledError:
-                logger.info("[ForwardResults] Task cancelled")
-            except Exception as e:
-                logger.error("[ForwardResults] Task error: %s", e)
-
-        forward_task = asyncio.create_task(forward_results())
-        logger.info("[WebSocket] Starting main loop for session %s", session_id)
-
         while True:
             try:
                 raw = await websocket.receive()
-                logger.debug("[WebSocket] Received raw message type: %s", list(raw.keys()))
             except Exception as e:
-                logger.error("[WebSocket] Error receiving message: %s", e)
+                logger.error("[VoiceprintEnroll-WS] Receive error: %s", e)
                 break
 
+            # 处理二进制音频数据
             if "bytes" in raw and raw["bytes"]:
                 audio_data = raw["bytes"]
                 audio_len = len(audio_data)
-                recv_time = time.monotonic()
-                logger.debug("[TIMING] recv audio: len=%d, time=%.3f", audio_len, recv_time)
 
-                # ASR 立即处理，完全独立于声纹识别
-                if not asr_started:
+                if not enrolling:
+                    continue
+
+                _samples = np.frombuffer(audio_data, dtype=np.int16)
+                _chunk_energy = np.abs(_samples).mean()
+
+                if _chunk_energy >= CHUNK_ENERGY_THRESHOLD:
+                    enroll_chunks.append(audio_data)
+                    enroll_bytes += audio_len
+                    logger.info("[VoiceprintEnroll-WS] Accumulated %.1fs effective audio (energy=%.0f)",
+                                enroll_bytes / 32000, _chunk_energy)
+
+                if enroll_bytes >= ENROLL_MIN_BYTES:
+                    enroll_audio = b"".join(enroll_chunks)
+                    voice_id = f"interviewer_{int(time.time() * 1000)}"
+
                     try:
-                        asr.start(on_partial=on_partial, on_sentence=on_sentence, on_error=on_error)
-                        asr_started = True
-                        logger.info("[ASR] Started")
+                        result = await voiceprint_service.enroll_voiceprint(
+                            voice_id=voice_id,
+                            name=enroll_name,
+                            audio_data=enroll_audio,
+                            role="interviewer",
+                            session_id="global_interviewers",
+                        )
+                        if result.get("success"):
+                            await websocket.send_json({
+                                "type": "voiceprint_enroll_result",
+                                "success": True,
+                                "voice_id": voice_id,
+                                "message": f"声纹注册成功：{enroll_name}",
+                            })
+                            logger.info("[VoiceprintEnroll-WS] Success: voice_id=%s", voice_id)
+                        else:
+                            await websocket.send_json({
+                                "type": "voiceprint_enroll_result",
+                                "success": False,
+                                "message": f"声纹注册失败：{result.get('error', '未知错误')}",
+                            })
                     except Exception as e:
-                        logger.error("[ASR] Failed to start: %s", e)
-                try:
-                    asr_send_start = time.monotonic()
-                    asr.send_audio_data(audio_data)
-                    asr_send_time = time.monotonic() - asr_send_start
-                    logger.debug("[TIMING] asr.send took %.3fms", asr_send_time * 1000)
-                except Exception as e:
-                    logger.error("[ASR] Failed to send: %s", e)
+                        await websocket.send_json({
+                            "type": "voiceprint_enroll_result",
+                            "success": False,
+                            "message": f"声纹注册异常：{e}",
+                        })
 
-                # 声纹识别持续运行，可以动态切换角色
-                if voiceprint_enabled:
-                    recent_audio_chunks.append(audio_data)
-                    voiceprint_accumulated_bytes += audio_len
-
-                    # 累积够音频就触发识别
-                    if voiceprint_accumulated_bytes >= VOICEPRINT_MIN_BYTES:
-                        combined_audio = b"".join(recent_audio_chunks)
-                        logger.info("[VOICEPRINT] Trigger with %.1fs audio, current_role=%s",
-                                    voiceprint_accumulated_bytes / 32000, current_role)
-                        asyncio.create_task(run_voiceprint_identification(combined_audio))
-                        recent_audio_chunks = []
-                        voiceprint_accumulated_bytes = 0
+                    enrolling = False
+                    enroll_chunks = []
+                    enroll_bytes = 0
 
                 continue
 
+            # 处理文本控制消息
             if "text" not in raw or not raw["text"]:
                 continue
 
-            msg = json.loads(raw["text"])
-            if msg.get("type") != "control":
+            try:
+                msg = json.loads(raw["text"])
+            except Exception:
                 continue
 
-            action = msg.get("action", "")
-
-            if action == "set_job_requirement":
-                job_requirement = msg.get("job_requirement")
-
-            elif action == "answer_complete":
-                if asr_started:
-                    asr.stop()
-                    asr_started = False
-
-                _incremental_in_flight.pop(session_id, None)
-                _incremental_pending.pop(session_id, None)
-                _incremental_start_time.pop(session_id, None)
-
-                full_answer = "".join(candidate_text)
-                full_question = "".join(interviewer_text)
-                candidate_text.clear()
-                interviewer_text.clear()
-                reset_round_state()
-
-                conversation_history.append({"question": full_question, "answer": full_answer})
-                await websocket.send_json({"type": "follow_up_clear"})
-
-                session["qa_history"].append({"question": full_question, "answer": full_answer})
-                await websocket.send_json(
-                    {
-                        "type": "answer_complete_ack",
-                        "question": full_question,
-                        "answer": full_answer,
-                    }
-                )
-
-            elif action == "pause":
-                if asr_started:
-                    asr.stop()
-                    asr_started = False
-
-            elif action == "resume":
-                if not asr_started:
-                    asr.start(on_partial=on_partial, on_sentence=on_sentence, on_error=on_error)
-                    asr_started = True
-
-            elif action == "stop":
-                if asr_started:
-                    asr.stop()
-                    asr_started = False
-
-                reset_voiceprint_state()
-                _incremental_in_flight.pop(session_id, None)
-                _incremental_pending.pop(session_id, None)
-                _incremental_start_time.pop(session_id, None)
-
-                resume_ctx = session.get("resume_text", "")
-                qa = session.get("qa_history", [])
-
-                if qa:
-                    await websocket.send_json({"type": "evaluation_start"})
-                    async for chunk in interview_evaluation_stream(
-                        resume_context=resume_ctx,
-                        qa_history=qa,
-                        job_requirement=job_requirement,
-                    ):
-                        await websocket.send_json({"type": "evaluation_stream", "data": chunk})
-                    await websocket.send_json({"type": "evaluation_complete"})
-
-                break
+            if msg.get("type") == "control" and msg.get("action") == "enroll_voiceprint":
+                enroll_name = msg.get("name", "面试官")
+                enrolling = True
+                enroll_chunks = []
+                enroll_bytes = 0
+                logger.info("[VoiceprintEnroll-WS] Start enrolling: name=%s", enroll_name)
+                await websocket.send_json({
+                    "type": "voiceprint_enroll_start",
+                    "message": f"请说话，正在注册声纹：{enroll_name}",
+                })
 
     except WebSocketDisconnect:
-        logger.debug("[WebSocket] Client disconnected normally")
+        logger.debug("[VoiceprintEnroll-WS] Client disconnected normally")
     except RuntimeError as e:
         if "disconnect" in str(e).lower():
-            logger.error("[WebSocket] Connection closed: %s", e)
+            logger.info("[VoiceprintEnroll-WS] Connection closed: %s", e)
         else:
-            logger.error("[WebSocket] Unexpected RuntimeError: %s", e)
+            logger.error("[VoiceprintEnroll-WS] Unexpected RuntimeError: %s", e)
     finally:
-        if asr_started:
-            asr.stop()
-        if "forward_task" in locals():
-            forward_task.cancel()
-        _incremental_in_flight.pop(session_id, None)
-        _incremental_pending.pop(session_id, None)
-        _incremental_start_time.pop(session_id, None)
+        logger.info("[VoiceprintEnroll-WS] Connection ended")

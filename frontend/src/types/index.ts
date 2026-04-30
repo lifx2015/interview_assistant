@@ -1,3 +1,5 @@
+export type InterviewMode = 'dual-track' | 'single-track';
+
 export type SpeakerRole = 'interviewer' | 'candidate';
 
 export interface Education {
@@ -5,6 +7,13 @@ export interface Education {
   degree: string;
   major: string;
   period: string;
+}
+
+export interface JobMatchResult {
+  job_name: string;
+  match_level: string;
+  summary: string;
+  points: string[];
 }
 
 export interface CandidateInfo {
@@ -15,6 +24,7 @@ export interface CandidateInfo {
   skills: string[];
   summary: string;
   risk_points: string[];
+  job_match: JobMatchResult | null;
 }
 
 export interface ResumeUploadResponse {
@@ -41,6 +51,7 @@ export interface InterviewListItem {
   session_id: string;
   candidate_name: string;
   created_at: string;
+  recording_paths?: string[];
 }
 
 export interface Question {

@@ -21,6 +21,24 @@ class Education(BaseModel):
     _normalize_period = field_validator("period", mode="before")(_none_to_empty)
 
 
+class JobMatchResult(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    job_name: str = ""
+    match_level: str = ""  # 高度匹配/基本匹配/部分匹配/不匹配
+    summary: str = ""
+    points: list[str] = []  # e.g. ["【核心技能】掌握React/Vue，与岗位前端开发要求高度匹配", ...]
+
+    _normalize_job_name = field_validator("job_name", mode="before")(_none_to_empty)
+    _normalize_match_level = field_validator("match_level", mode="before")(_none_to_empty)
+    _normalize_summary = field_validator("summary", mode="before")(_none_to_empty)
+
+    @field_validator("points", mode="before")
+    @classmethod
+    def _none_to_empty_list(cls, v):
+        return v if v is not None else []
+
+
 class CandidateInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -31,6 +49,7 @@ class CandidateInfo(BaseModel):
     skills: list[str] = []
     summary: str = ""
     risk_points: list[str] = []
+    job_match: Optional[JobMatchResult] = None
 
     _normalize_name = field_validator("name", mode="before")(_none_to_empty)
     _normalize_phone = field_validator("phone", mode="before")(_none_to_empty)

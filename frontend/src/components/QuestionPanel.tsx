@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { questionBankApi } from '../services/api';
 import styles from './QuestionPanel.module.css';
 import type { Question, BankQuestionGroup } from '../types';
 
@@ -18,6 +20,9 @@ interface Props {
   bankQuestionGroups?: BankQuestionGroup[];
   onAddBankGroup?: (group: BankQuestionGroup) => void;
   onRemoveBankGroup?: (bankId: string) => void;
+  onTriggerFollowUp?: () => void;
+  isRecording?: boolean;
+  isAnalyzing?: boolean;
 }
 
 export const QuestionPanel: React.FC<Props> = ({
@@ -29,6 +34,9 @@ export const QuestionPanel: React.FC<Props> = ({
   bankQuestionGroups = [],
   onAddBankGroup,
   onRemoveBankGroup,
+  onTriggerFollowUp,
+  isRecording = false,
+  isAnalyzing = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'preset' | 'followup' | string>('preset');
   const [showBankSelector, setShowBankSelector] = useState(false);
@@ -59,23 +67,21 @@ export const QuestionPanel: React.FC<Props> = ({
   const fetchBanks = async () => {
     setLoadingBanks(true);
     try {
-      const res = await fetch('/api/question-bank/list');
-      if (res.ok) {
-        const data = await res.json();
-        const banksWithQuestions: QuestionBank[] = [];
-        for (const bank of data.banks || []) {
-          const detailRes = await fetch(`/api/question-bank/${bank.id}`);
-          if (detailRes.ok) {
-            const detail = await detailRes.json();
-            banksWithQuestions.push({
-              id: detail.id,
-              name: detail.name,
-              questions: detail.questions || [],
-            });
-          }
-        }
-        setBanks(banksWithQuestions);
-      }
+      const data = await questionBankApi.list();
+      const bankList = data.banks || [];
+      const details = await Promise.all(
+        bankList.map((bank: QuestionBank) =>
+          questionBankApi.get(bank.id).catch(() => null)
+        )
+      );
+      const banksWithQuestions: QuestionBank[] = details
+        .filter((d: any) => d !== null)
+        .map((d: any) => ({
+          id: d.id,
+          name: d.name,
+          questions: d.questions || [],
+        }));
+      setBanks(banksWithQuestions);
     } catch (e) {
       console.error('Failed to fetch banks:', e);
     }
@@ -182,16 +188,36 @@ export const QuestionPanel: React.FC<Props> = ({
             <span onClick={e => { e.stopPropagation(); removeBankGroup(group.bankId); }} style={{ marginLeft: 4, opacity: 0.5 }}>×</span>
           </button>
         ))}
+        <button className={`${styles['tab']} ${styles['tab-action']}`} onClick={openBankSelector} title="添加题库">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          添加题库
+        </button>
       </div>
 
       <div className={styles.content}>
         {activeTab === 'preset' && (
           <>
+            <div className={styles['preset-toolbar']}>
+              <button
+                className={styles['generate-btn']}
+                onClick={onGenerate}
+                disabled={isGenerating}
+              >
+                {isGenerating ? (
+                  <>
+                    <span className={styles['generating-spinner']} />
+                    生成中...
+                  </>
+                ) : (
+                  '⚡ 生成题目'
+                )}
+              </button>
+            </div>
             {questionsRaw ? (
               <MarkdownRenderer content={questionsRaw} isStreaming={isGenerating} />
             ) : (
               <div className={styles['empty-state']}>
-                <p>点击下方「生成题目」基于简历自动生成面试问题</p>
+                <p>点击上方「生成题目」基于简历自动生成面试问题</p>
               </div>
             )}
           </>
@@ -199,6 +225,19 @@ export const QuestionPanel: React.FC<Props> = ({
 
         {activeTab === 'followup' && (
           <>
+            {/* Re-trigger button always visible */}
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)' }}>
+              <button
+                className={styles['generate-btn']}
+                onClick={onTriggerFollowUp}
+                disabled={!isRecording || isAnalyzing}
+                style={{ width: '100%' }}
+              >
+                {isAnalyzing ? '⏳ 分析中...' : '🔍 生成追问建议'}
+              </button>
+              {!isRecording && <p style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>录音开始后可手动触发</p>}
+            </div>
+
             {followUpRaw ? (
               <div className={styles['follow-up-section']}>
                 <div className={styles['follow-up-header']}>
@@ -264,11 +303,7 @@ export const QuestionPanel: React.FC<Props> = ({
                   );
                 })()}
               </div>
-            ) : (
-              <div className={styles['empty-state']}>
-                <p>候选人回答时将实时生成追问建议</p>
-              </div>
-            )}
+            ) : null}
           </>
         )}
 
@@ -302,33 +337,10 @@ export const QuestionPanel: React.FC<Props> = ({
         )}
       </div>
 
-      <div className={styles['floating-actions']}>
-        <button
-          className={styles['generate-btn']}
-          onClick={onGenerate}
-          disabled={isGenerating}
-        >
-          {isGenerating ? (
-            <>
-              <span className={styles['generating-spinner']} />
-              生成中...
-            </>
-          ) : (
-            '⚡ 生成题目'
-          )}
-        </button>
-        <button
-          className={`${styles['generate-btn']} ${styles['bank-btn']}`}
-          onClick={openBankSelector}
-        >
-          📚 添加题库
-        </button>
-      </div>
-
-      {showBankSelector && (
+      {showBankSelector && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }} onClick={() => setShowBankSelector(false)}>
-          <div style={{ width: '100%', maxWidth: 600, maxHeight: '85vh', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ width: '100%', maxWidth: 860, maxHeight: '85vh', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
               <div>
                 <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>选择题库</h3>
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>展开题库并选择要添加的题目</p>
@@ -374,7 +386,7 @@ export const QuestionPanel: React.FC<Props> = ({
                                 </button>
                                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>已选择 {selectedCount} / {bank.questions.length} 题</span>
                               </div>
-                              <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {bank.questions.map(q => {
                                   const isSelected = selectedQuestionIds[bank.id]?.has(q.id);
                                   const diff = getDifficultyStyle(q.difficulty);
@@ -398,11 +410,6 @@ export const QuestionPanel: React.FC<Props> = ({
                                   );
                                 })}
                               </div>
-                              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end' }}>
-                                <button className="btn btn-primary" onClick={() => confirmAddQuestions(bank)} disabled={selectedCount === 0}>
-                                  添加选中的 {selectedCount} 道题
-                                </button>
-                              </div>
                             </>
                           )}
                         </div>
@@ -412,8 +419,39 @@ export const QuestionPanel: React.FC<Props> = ({
                 })}
               </div>
             )}
+
+            {expandedBankId && (() => {
+              const bank = banks.find(b => b.id === expandedBankId);
+              if (!bank) return null;
+              const selectedCount = selectedQuestionIds[bank.id]?.size || 0;
+              return (
+                <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0, background: 'var(--bg-secondary)' }}>
+                  <button
+                    onClick={() => confirmAddQuestions(bank)}
+                    disabled={selectedCount === 0}
+                    style={{
+                      padding: '10px 28px',
+                      border: 'none',
+                      borderRadius: 8,
+                      background: selectedCount > 0
+                        ? 'linear-gradient(135deg, var(--accent-cyan), #0088cc)'
+                        : 'rgba(255,255,255,0.06)',
+                      color: selectedCount > 0 ? '#fff' : 'var(--text-muted)',
+                      fontSize: 14,
+                      fontWeight: 700,
+                      cursor: selectedCount > 0 ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.2s',
+                      boxShadow: selectedCount > 0 ? '0 0 20px rgba(0,212,255,0.3)' : 'none',
+                    }}
+                  >
+                    添加选中的 {selectedCount} 道题
+                  </button>
+                </div>
+              );
+            })()}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

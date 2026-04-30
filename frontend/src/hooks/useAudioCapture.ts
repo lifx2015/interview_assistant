@@ -28,6 +28,7 @@ export function useAudioCapture({ onAudioData }: UseAudioCaptureOptions) {
 
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
+      await audioContext.resume();
 
       await audioContext.audioWorklet.addModule(WORKLET_URL);
 
@@ -43,7 +44,7 @@ export function useAudioCapture({ onAudioData }: UseAudioCaptureOptions) {
       };
 
       source.connect(workletNode);
-      workletNode.connect(audioContext.destination);
+      // Don't connect to destination — would play mic audio through speakers (feedback loop)
 
       activeRef.current = true;
       setIsCapturing(true);

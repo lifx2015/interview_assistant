@@ -6,9 +6,10 @@ import dashscope
 from dashscope import Generation
 
 from backend.config import settings
-from backend.models.schemas import CandidateInfo
+from backend.models.schemas import CandidateInfo, JobMatchResult
 from backend.prompts.star_analysis import (
     RESUME_EXTRACTION_PROMPT,
+    RESUME_JOB_MATCH_PROMPT,
     STAR_ANALYSIS_PROMPT,
     INCREMENTAL_ANALYSIS_PROMPT,
     INTERVIEW_QUESTIONS_PROMPT,
@@ -110,12 +111,16 @@ def _next_chunk(gen):
         return None
 
 
-async def extract_resume_info(raw_text: str) -> CandidateInfo:
+async def extract_resume_info(raw_text: str, job_requirement: dict | None = None) -> CandidateInfo:
     prompt = RESUME_EXTRACTION_PROMPT.format(resume_text=raw_text)
-    resp = Generation.call(
-        model=settings.llm_model,
-        messages=[{"role": "user", "content": prompt}],
-        result_format="message",
+    loop = asyncio.get_running_loop()
+    resp = await loop.run_in_executor(
+        None,
+        lambda: Generation.call(
+            model=settings.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            result_format="message",
+        ),
     )
 
     # 检查 API 响应是否有效
@@ -133,7 +138,45 @@ async def extract_resume_info(raw_text: str) -> CandidateInfo:
         raise ValueError("简历解析返回空内容，请重试")
 
     data = _extract_json(content)
-    return CandidateInfo(**data)
+    candidate = CandidateInfo(**data)
+
+    # 如果有岗位要求，分析岗位匹配度
+    if job_requirement and (job_requirement.get("name") or job_requirement.get("description")):
+        try:
+            job_match = await _analyze_job_match(raw_text, job_requirement)
+            candidate.job_match = job_match
+        except Exception as e:
+            logger.warning("岗位匹配度分析失败: %s", e)
+
+    return candidate
+
+
+async def _analyze_job_match(raw_text: str, job_requirement: dict) -> JobMatchResult:
+    prompt = RESUME_JOB_MATCH_PROMPT.format(
+        resume_text=raw_text,
+        job_name=job_requirement.get("name", ""),
+        job_description=job_requirement.get("description", ""),
+    )
+    loop = asyncio.get_running_loop()
+    resp = await loop.run_in_executor(
+        None,
+        lambda: Generation.call(
+            model=settings.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            result_format="message",
+        ),
+    )
+
+    if resp is None or resp.output is None or not resp.output.choices:
+        logger.warning("岗位匹配度 API 返回异常")
+        return JobMatchResult()
+
+    content = resp.output.choices[0].message.content
+    if not content:
+        return JobMatchResult()
+
+    data = _extract_json(content)
+    return JobMatchResult(**data)
 
 
 async def generate_interview_questions_stream(resume_context: str, risk_points: list[str]):
@@ -165,36 +208,6 @@ async def incremental_analyze_stream(
         yield chunk
 
 
-async def analyze_answer_stream(
-    resume_context: str,
-    question: str,
-    answer: str,
-    conversation_history: list[dict] | None = None,
-):
-    """Per-answer STAR analysis (kept for backward compat, now uses qa_history format)."""
-    # Build a qa_history-style list from the current round + history
-    qa_list = list(conversation_history or [])
-    qa_list.append({"question": question, "answer": answer})
-
-    qa_text = ""
-    for i, qa in enumerate(qa_list, 1):
-        qa_text += f"第{i}轮 - 面试官: {qa.get('question', '')}\n"
-        qa_text += f"第{i}轮 - 候选人: {qa.get('answer', '')}\n\n"
-
-    prompt = STAR_ANALYSIS_PROMPT.format(
-        resume_context=resume_context[:2000],
-        qa_history=qa_text,
-    )
-    loop = asyncio.get_running_loop()
-    gen = _stream_llm(prompt)
-    while True:
-        try:
-            chunk = await loop.run_in_executor(None, next, gen)
-            yield chunk
-        except StopIteration:
-            break
-
-
 async def interview_evaluation_stream(
     resume_context: str,
     qa_history: list[dict],
@@ -220,14 +233,8 @@ async def interview_evaluation_stream(
         qa_history=qa_text,
         job_requirement=jr_text,
     )
-    loop = asyncio.get_running_loop()
-    gen = _stream_llm(prompt)
-    while True:
-        try:
-            chunk = await loop.run_in_executor(None, next, gen)
-            yield chunk
-        except StopIteration:
-            break
+    async for chunk in _async_stream_llm(prompt):
+        yield chunk
 
 
 async def psychology_analyze_stream(
