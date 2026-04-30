@@ -26,7 +26,7 @@ export function useAudioCapture({ onAudioData }: UseAudioCaptureOptions) {
       });
       streamRef.current = stream;
 
-      const audioContext = new AudioContext();
+      const audioContext = new AudioContext({ sampleRate: 16000 });
       audioContextRef.current = audioContext;
       await audioContext.resume();
 

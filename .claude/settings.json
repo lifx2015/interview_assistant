@@ -17,7 +17,15 @@
       "Bash(python -c \"import py_compile; py_compile.compile\\('backend/routers/ws_asr.py', doraise=True\\)\")",
       "Bash(python -c \"import py_compile; py_compile.compile\\('backend/routers/ws_asr.py', doraise=True\\); print\\('OK'\\)\")",
       "Bash(python -c \"from backend.models.schemas import CandidateInfo, JobMatchResult; from backend.prompts.star_analysis import RESUME_JOB_MATCH_PROMPT; print\\('Backend imports OK'\\)\")",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(node node_modules/.bin/tsc --noEmit)",
+      "Bash(node ./node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(node E:/workspace/interview_assistant/frontend/node_modules/typescript/bin/tsc --noEmit --project E:/workspace/interview_assistant/frontend/tsconfig.json)",
+      "Bash(node \"E:/workspace/interview_assistant/frontend/node_modules/typescript/bin/tsc\" --noEmit --project \"E:/workspace/interview_assistant/frontend/tsconfig.json\")",
+      "Bash(node node_modules/.bin/vite build)",
+      "Bash(node \"E:/workspace/interview_assistant/frontend/node_modules/.bin/vite\" build --outDir E:/workspace/interview_assistant/frontend/dist)"
     ]
   }
 }

@@ -143,11 +143,6 @@ function App() {
     interview.stopInterview();
   }, [audio, systemAudio.stop, ws, interview]);
 
-  const handleSubmitAnswer = useCallback(() => {
-    ws.send({ type: 'control', action: 'answer_complete' });
-    interview.submitAnswer();
-  }, [ws.send, interview.submitAnswer]);
-
   const handleSave = useCallback(() => {
     interview.saveInterview(noteContent);
   }, [interview.saveInterview, noteContent]);
@@ -198,7 +193,6 @@ function App() {
       onPause={handlePause}
       onResume={handleResume}
       onStop={handleStop}
-      onSubmitAnswer={handleSubmitAnswer}
       onGenerateQuestions={interview.generateQuestions}
       onSave={handleSave}
       isSaving={interview.isSaving}

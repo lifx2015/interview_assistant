@@ -2,7 +2,6 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import styles from './MainLayout.module.css';
 import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem, BankQuestionGroup, JobRequirement, InterviewMode } from '../types';
 import type { WSStatus } from '../hooks/useWebSocket';
-import { ResumeUploader } from './ResumeUploader';
 import { CandidatePanel } from './CandidatePanel';
 import { NotePanel } from './NotePanel';
 import { TranscriptPanel } from './TranscriptPanel';
@@ -12,6 +11,7 @@ import { AnalysisPanel } from './AnalysisPanel';
 import { InterviewListPanel } from './InterviewListPanel';
 import { StatusBar } from './StatusBar';
 import { LandingView } from './LandingView';
+import { MarkdownRenderer } from './MarkdownRenderer';
 import { Link } from 'react-router-dom';
 
 interface Props {
@@ -38,7 +38,6 @@ interface Props {
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
-  onSubmitAnswer: () => void;
   onGenerateQuestions: () => void;
   onSave: () => void;
   isSaving: boolean;
@@ -76,7 +75,7 @@ export const MainLayout: React.FC<Props> = ({
   evaluationRaw, isEvaluating, psychologyRaw, isPsychologyAnalyzing,
   noteContent, onNoteChange,
   onUploadSuccess, onStart, onPause, onResume,
-  onStop, onSubmitAnswer, onGenerateQuestions,
+  onStop, onGenerateQuestions,
   onSave, isSaving, recordingPaths, savedInterviews, onLoadInterview, onFetchList,
   bankQuestionGroups, onAddBankGroup, onRemoveBankGroup,
   wsStatus, wsError, audioError, appError,
@@ -150,6 +149,12 @@ export const MainLayout: React.FC<Props> = ({
     setTimeout(() => setViewPhase('workspace'), 800);
   }, [onUploadSuccess]);
 
+  const handleLandingLoadInterview = useCallback((sessionId: string) => {
+    onLoadInterview(sessionId);
+    setViewPhase('transitioning');
+    setTimeout(() => setViewPhase('workspace'), 800);
+  }, [onLoadInterview]);
+
   useEffect(() => {
     if (sessionId && viewPhase === 'landing') {
       setViewPhase('workspace');
@@ -200,6 +205,13 @@ export const MainLayout: React.FC<Props> = ({
               <line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
             </svg>
           </button>
+          <Link to="/job-requirement" className={styles['btn-job-requirement']}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+              <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+            </svg>
+            岗位管理
+          </Link>
           <Link to="/question-bank" className={styles['btn-question-bank']}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
@@ -272,6 +284,13 @@ export const MainLayout: React.FC<Props> = ({
         onReconnect={onReconnect}
       />
 
+      {/* Interview list overlay (available in both landing and workspace) */}
+      {listOpen && <InterviewListPanel
+        interviews={savedInterviews}
+        onLoad={viewPhase === 'landing' || viewPhase === 'transitioning' ? handleLandingLoadInterview : onLoadInterview}
+        onClose={() => setListOpen(false)}
+      />}
+
       {/* Landing view (before upload) */}
       {(viewPhase === 'landing' || viewPhase === 'transitioning') && (
         <LandingView
@@ -285,7 +304,7 @@ export const MainLayout: React.FC<Props> = ({
 
       {/* Two-column layout (after upload) */}
       {(viewPhase === 'transitioning' || viewPhase === 'workspace') && (
-        <div className={`${styles.columns} ${viewPhase === 'transitioning' ? styles['workspace-entering'] : ''}`} ref={containerRef}>
+        <div className={`${styles.columns} ${viewPhase === 'transitioning' ? styles['workspace-entering'] : ''} ${isDragging ? styles.dragging : ''}`} ref={containerRef}>
         {/* LEFT - Candidate info */}
         <aside className={`${styles['col-left']} glow-card`} style={{ width: leftWidth, minWidth: leftWidth }}>
           {candidate ? (
@@ -304,11 +323,6 @@ export const MainLayout: React.FC<Props> = ({
 
         {/* RIGHT - Questions (top) & Bottom tabs (transcript/evaluation/notes/psychology) */}
         <main className={styles['col-center']}>
-          {listOpen && <InterviewListPanel
-            interviews={savedInterviews}
-            onLoad={onLoadInterview}
-            onClose={() => setListOpen(false)}
-          />}
           <div className={`${styles['center-top']} glow-card`}>
             <QuestionPanel
               isGenerating={isGeneratingQuestions}
@@ -365,16 +379,16 @@ export const MainLayout: React.FC<Props> = ({
               {bottomTab === 'transcript' && (
                 <div className={styles['transcript-tab-content']}>
                   <TranscriptPanel status={status} transcript={transcript} pendingSentences={pendingSentences} currentPartial={currentPartial} currentRole={currentRole} mode={mode} partialByRole={partialByRole} />
-                  <ControlBar status={status} isAnalyzing={isAnalyzing} mode={mode}
+                  <ControlBar status={status} isAnalyzing={isAnalyzing}
                     onStart={onStart} onPause={onPause} onResume={onResume}
-                    onStop={onStop} onSubmitAnswer={onSubmitAnswer} disabled={!sessionId} />
+                    onStop={onStop} disabled={!sessionId} />
                 </div>
               )}
               {bottomTab === 'evaluation' && (
                 <AnalysisPanel analysisRaw={evaluationRaw} isAnalyzing={isEvaluating} jobRequirementName={selectedJobRequirement?.name} />
               )}
               {bottomTab === 'notes' && (
-                <NotePanel value={noteContent} onChange={onNoteChange} psychologyRaw={psychologyRaw} onTriggerPsychology={onTriggerPsychology} isRecording={status === 'recording' || status === 'paused'} isPsychologyAnalyzing={isPsychologyAnalyzing} />
+                <NotePanel value={noteContent} onChange={onNoteChange} />
               )}
               {bottomTab === 'psychology' && (
                 <div className={styles['psychology-tab-content']}>
@@ -400,7 +414,7 @@ export const MainLayout: React.FC<Props> = ({
                   </div>
                   {psychologyRaw ? (
                     <div style={{ padding: '8px 12px', flex: 1, overflow: 'auto' }}>
-                      <div className="markdown-body" dangerouslySetInnerHTML={{ __html: '' }} />
+                      <MarkdownRenderer content={psychologyRaw} />
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, height: '100%', color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', padding: 20 }}>
