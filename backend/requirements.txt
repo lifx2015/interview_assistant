@@ -15,3 +15,4 @@ scikit-learn
 soundfile
 librosa
 pyaec>=1.0.1
+qwen-asr

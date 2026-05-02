@@ -43,6 +43,31 @@ export const resumeApi = {
 };
 
 // ── Interview ───────────────────────────────────────────
+export const audioApi = {
+  upload(
+    file: File,
+    options?: {
+      sessionId?: string;
+      jobRequirementName?: string;
+      jobRequirementDesc?: string;
+    },
+  ): Promise<Response> {
+    const params = new URLSearchParams();
+    if (options?.sessionId) params.set('session_id', options.sessionId);
+    if (options?.jobRequirementName) params.set('job_requirement_name', options.jobRequirementName);
+    if (options?.jobRequirementDesc) params.set('job_requirement_desc', options.jobRequirementDesc);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    return fetch(`${API_BASE}/audio/upload${qs}`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+};
+
 export const interviewApi = {
   save: (data: unknown) => apiFetch('/interview/save', jsonBody(data)),
   load: (sessionId: string) => apiFetch(`/interview/${sessionId}/load`),

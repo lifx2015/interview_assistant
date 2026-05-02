@@ -244,6 +244,19 @@
   background: var(--accent-cyan);
 }
 
+.resize-handle-v {
+  height: 4px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+.resize-handle-v:hover {
+  background: var(--accent-cyan);
+}
+
 /* ===== Center Column ===== */
 .col-center {
   flex: 1;
@@ -264,8 +277,7 @@
 }
 
 .center-bottom {
-  height: 320px;
-  min-height: 200px;
+  min-height: 150px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -336,14 +348,6 @@
 }
 
 .transcript-tab-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.psychology-tab-content {
   flex: 1;
   display: flex;
   flex-direction: column;

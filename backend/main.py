@@ -1,11 +1,15 @@
 import logging
+import os
 from contextlib import asynccontextmanager
+
+# Reduce CUDA memory fragmentation before torch is imported
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
-from backend.routers import resume, interview, ws_asr, voiceprint, question_bank, job_requirement
+from backend.routers import resume, interview, ws_asr, voiceprint, question_bank, job_requirement, audio
 from backend.routers.ws_asr import _voiceprint_executor
 from backend.services import database
 from backend.services.voiceprint_service import voiceprint_service
@@ -54,6 +58,7 @@ app.include_router(interview.router, prefix="/api")
 app.include_router(voiceprint.router, prefix="/api")
 app.include_router(question_bank.router, prefix="/api")
 app.include_router(job_requirement.router, prefix="/api")
+app.include_router(audio.router, prefix="/api")
 app.include_router(ws_asr.router)
 
 

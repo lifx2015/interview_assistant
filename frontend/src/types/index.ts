@@ -75,3 +75,51 @@ export interface JobRequirement {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface EvaluationScoreItem {
+  score: number;
+  label: string;
+  desc: string;
+}
+
+export interface EvaluationJobMatchItem {
+  level: string;
+  desc: string;
+}
+
+export interface EvaluationResult {
+  summary: string;
+  scores: {
+    professional: EvaluationScoreItem;
+    clarity: EvaluationScoreItem;
+    logic: EvaluationScoreItem;
+    authenticity: EvaluationScoreItem;
+    jobFit: EvaluationScoreItem;
+  };
+  jobMatch: {
+    coreSkill: EvaluationJobMatchItem;
+    experience: EvaluationJobMatchItem;
+    softSkill: EvaluationJobMatchItem;
+    overall: string;
+    summary: string;
+  };
+  highlights: string[];
+  risks: string[];
+  recommendation: {
+    hire: boolean;
+    reason: string;
+    nextFocus: string;
+  };
+}
+
+export interface AudioUploadProgressEvent {
+  stage: 'converting' | 'transcribing' | 'parsing' | 'evaluating' | 'psychology' | 'complete' | 'error';
+  message: string;
+  session_id?: string;
+  candidate?: CandidateInfo;
+  transcript?: { role: SpeakerRole; text: string }[];
+  qa_history?: QARecord[];
+  evaluation_result?: EvaluationResult;
+  evaluation_error?: string;
+  psychology_raw?: string;
+}

@@ -1,0 +1,227 @@
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ===== Trigger Bar ===== */
+.trigger-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.trigger-btn {
+  width: 100%;
+  padding: 8px 16px;
+  border: 1px solid var(--accent-amber);
+  background: rgba(255, 170, 0, 0.08);
+  color: var(--accent-amber);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.trigger-btn:hover:not(:disabled) {
+  background: rgba(255, 170, 0, 0.15);
+  box-shadow: 0 0 12px rgba(255, 170, 0, 0.2);
+}
+
+.trigger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ===== Empty State ===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px;
+}
+
+/* ===== Gauges Row ===== */
+.gauges-row {
+  display: flex;
+  justify-content: space-around;
+  gap: 4px;
+  padding: 16px 8px 8px;
+  flex-shrink: 0;
+}
+
+.gauge-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  padding: 8px 4px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  transition: border-color 0.3s;
+}
+
+.gauge-card:hover {
+  border-color: var(--border-glow);
+}
+
+/* Scan line overlay */
+.gauge-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+  opacity: 0;
+  animation: scan-line-h 4s linear infinite;
+}
+
+@keyframes scan-line-h {
+  0% { transform: translateX(-100%); opacity: 0; }
+  10% { opacity: 0.3; }
+  90% { opacity: 0.3; }
+  100% { transform: translateX(100%); opacity: 0; }
+}
+
+.gauge-svg-wrap {
+  width: 80px;
+  height: 80px;
+  position: relative;
+}
+
+.gauge-arc {
+  transition: stroke-dashoffset 0.8s ease-out, stroke 0.4s ease;
+}
+
+.gauge-arc-glow {
+  transition: stroke-dashoffset 0.8s ease-out, stroke 0.4s ease;
+  animation: arc-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes arc-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.3; }
+}
+
+.gauge-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+  text-align: center;
+}
+
+.gauge-level-text {
+  font-size: 16px;
+  font-weight: 700;
+  fill: currentColor;
+}
+
+.gauge-icon {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* ===== Details Section ===== */
+.details-section {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-block {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.detail-block[open] {
+  overflow: visible;
+}
+
+.detail-summary {
+  cursor: pointer;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  list-style: none;
+  transition: background 0.2s;
+}
+
+.detail-summary::-webkit-details-marker {
+  display: none;
+}
+
+.detail-summary::before {
+  content: '▸';
+  font-size: 9px;
+  transition: transform 0.2s;
+}
+
+.detail-block[open] .detail-summary::before {
+  content: '▾';
+}
+
+.detail-summary:hover {
+  background: rgba(0, 212, 255, 0.04);
+}
+
+.detail-content {
+  padding: 4px 12px 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.detail-content :global(.markdown-body) {
+  font-size: 12px;
+}
+
+/* ===== Streaming indicator ===== */
+.streaming-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 11px;
+  color: var(--accent-cyan);
+}
+
+.streaming-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}

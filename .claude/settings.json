@@ -25,7 +25,18 @@
       "Bash(node E:/workspace/interview_assistant/frontend/node_modules/typescript/bin/tsc --noEmit --project E:/workspace/interview_assistant/frontend/tsconfig.json)",
       "Bash(node \"E:/workspace/interview_assistant/frontend/node_modules/typescript/bin/tsc\" --noEmit --project \"E:/workspace/interview_assistant/frontend/tsconfig.json\")",
       "Bash(node node_modules/.bin/vite build)",
-      "Bash(node \"E:/workspace/interview_assistant/frontend/node_modules/.bin/vite\" build --outDir E:/workspace/interview_assistant/frontend/dist)"
+      "Bash(node \"E:/workspace/interview_assistant/frontend/node_modules/.bin/vite\" build --outDir E:/workspace/interview_assistant/frontend/dist)",
+      "Bash(python -c \"import dashscope; help\\(dashscope.audio.asr\\)\")",
+      "Bash(python -c \"from dashscope.audio.asr.transcription import Transcription; help\\(Transcription\\)\")",
+      "Bash(python -c \"import dashscope; print\\(dir\\(dashscope.audio.asr\\)\\)\")",
+      "Bash(pip list *)",
+      "Read(//e/models/Qwen3-ASR-1.7B/**)",
+      "Bash(nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader)",
+      "Bash(python -c \"from qwen_asr import Qwen3ASRModel; print\\('qwen-asr import OK'\\)\")",
+      "Bash(python -c \"from backend.services.audio_transcription_service import transcribe_file, transcribe_file_local, transcribe_file_dashscope; print\\('All imports OK'\\)\")",
+      "Bash(python -c \"from backend.prompts.star_analysis import STAR_ANALYSIS_PROMPT; print\\('Prompt OK'\\)\")",
+      "Bash(python -c \"from backend.services.llm_service import interview_evaluation; print\\('Import OK'\\)\")",
+      "Bash(python -c \"from backend.services.audio_transcription_service import process_audio_upload; print\\('OK'\\)\")"
     ]
   }
 }

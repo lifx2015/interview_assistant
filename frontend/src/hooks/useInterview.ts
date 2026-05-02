@@ -8,6 +8,8 @@ import type {
   InterviewListItem,
   Question,
   BankQuestionGroup,
+  AudioUploadProgressEvent,
+  EvaluationResult,
 } from '../types';
 
 export function useInterview() {
@@ -42,7 +44,7 @@ export function useInterview() {
       return next;
     });
   }, []);
-  const [evaluationRaw, setEvaluationRaw] = useState('');
+  const [evaluationResult, setEvaluationResult] = useState<EvaluationResult | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [psychologyRaw, setPsychologyRaw] = useState('');
   const [isPsychologyAnalyzing, setIsPsychologyAnalyzing] = useState(false);
@@ -133,10 +135,13 @@ export function useInterview() {
     },
     evaluation_start: () => {
       setIsEvaluating(true);
-      setEvaluationRaw('');
+      setEvaluationResult(null);
     },
-    evaluation_stream: (data) => {
-      setEvaluationRaw((prev: string) => prev + data.data);
+    evaluation_result: (data) => {
+      setEvaluationResult(data);
+    },
+    evaluation_error: () => {
+      setIsEvaluating(false);
     },
     evaluation_complete: () => {
       setIsEvaluating(false);
@@ -171,7 +176,7 @@ export function useInterview() {
     setQaHistory([]);
     _setFollowUpRaw('');
     setLastFollowUpRaw('');
-    setEvaluationRaw('');
+    setEvaluationResult(null);
     setPsychologyRaw('');
     setIsPsychologyAnalyzing(false);
     setIsAnalyzing(false);
@@ -263,7 +268,7 @@ export function useInterview() {
           qa_history: qaHistory,
           transcript,
           analysis_raw: '',
-          evaluation_raw: evaluationRaw,
+          evaluation_raw: evaluationResult ? JSON.stringify(evaluationResult) : '',
           questions_raw: questionsRaw,
           notes,
         }),
@@ -280,7 +285,7 @@ export function useInterview() {
     } finally {
       setIsSaving(false);
     }
-  }, [sessionId, candidate, qaHistory, transcript, questionsRaw, evaluationRaw]);
+  }, [sessionId, candidate, qaHistory, transcript, questionsRaw, evaluationResult]);
 
   const fetchInterviewList = useCallback(async () => {
     try {
@@ -312,7 +317,7 @@ export function useInterview() {
       setCandidateText('');
       _setFollowUpRaw('');
       setLastFollowUpRaw('');
-      setEvaluationRaw(data.evaluation_raw || '');
+      setEvaluationResult(data.evaluation_raw ? JSON.parse(data.evaluation_raw) : null);
       setIsEvaluating(false);
       setIsAnalyzing(false);
       setRecordingPaths(data.recording_paths || []);
@@ -362,6 +367,46 @@ export function useInterview() {
     wsSendRef.current?.({ type: 'control', action: 'trigger_psychology' });
   }, []);
 
+  const [audioUploadStatus, setAudioUploadStatus] = useState<string | null>(null);
+
+  const loadAudioResult = useCallback((event: AudioUploadProgressEvent) => {
+    if (event.stage === 'error') {
+      setAppError(event.message);
+      setAudioUploadStatus(null);
+      return;
+    }
+
+    if (event.stage === 'complete') {
+      setSessionId(event.session_id!);
+      setCandidate(event.candidate || { name: '', phone: '', email: '', education: [], skills: [], summary: '', risk_points: [], job_match: null });
+      setTranscript(
+        (event.transcript || []).map((t, i) => ({
+          id: i + 1,
+          role: t.role as SpeakerRole,
+          text: t.text,
+          isFinal: true,
+          timestamp: Date.now(),
+        })),
+      );
+      setQaHistory(event.qa_history || []);
+      setEvaluationResult(event.evaluation_result || null);
+      setPsychologyRaw(event.psychology_raw || '');
+      setStatus('idle');
+      setCurrentPartial('');
+      setPartialByRole({ interviewer: '', candidate: '' });
+      setIsAnalyzing(false);
+      setIsEvaluating(false);
+      setAudioUploadStatus(null);
+      if (event.evaluation_error) {
+        setAppError(`面试评估生成失败: ${event.evaluation_error}`);
+      }
+      return;
+    }
+
+    // Progress stages
+    setAudioUploadStatus(event.message);
+  }, []);
+
   return {
     status,
     sessionId,
@@ -395,7 +440,7 @@ export function useInterview() {
     setWsSend,
     followUpRaw,
     lastFollowUpRaw,
-    evaluationRaw,
+    evaluationResult,
     isEvaluating,
     psychologyRaw,
     isPsychologyAnalyzing,
@@ -407,5 +452,8 @@ export function useInterview() {
     clearAppError,
     triggerFollowUp,
     triggerPsychology,
+    audioUploadStatus,
+    loadAudioResult,
+    setAppError,
   };
 }

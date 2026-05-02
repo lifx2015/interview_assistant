@@ -207,6 +207,75 @@
   margin-top: 16px;
 }
 
+/* ========== Upload tabs ========== */
+.upload-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.upload-tab {
+  flex: 1;
+  padding: 8px 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.upload-tab-active {
+  background: var(--bg-card);
+  color: var(--accent-cyan);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.upload-tab:hover:not(.upload-tab-active) {
+  color: var(--text-secondary);
+}
+
+/* ========== Audio upload area ========== */
+.audio-upload-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.audio-drop-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.audio-drop-zone:hover {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 212, 255, 0.03);
+}
+
+.audio-drop-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.audio-drop-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* ========== Footer ========== */
 .landing-footer {
   display: flex;

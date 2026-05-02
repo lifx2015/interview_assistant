@@ -3,6 +3,8 @@ import { MainLayout } from './components/MainLayout';
 import { useInterview } from './hooks/useInterview';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useAudioCapture } from './hooks/useAudioCapture';
+import { audioApi } from './services/api';
+import type { AudioUploadProgressEvent } from './types';
 import { useSystemAudioCapture } from './hooks/useSystemAudioCapture';
 import type { InterviewStatus, InterviewMode } from './types';
 import './styles/global.css';
@@ -167,6 +169,53 @@ function App() {
     setSystemAudioError(null);
   }, [interview.status]);
 
+  const handleUploadAudio = useCallback(async (file: File, jobRequirement?: { name: string; description: string } | null) => {
+    try {
+      const res = await audioApi.upload(file, {
+        sessionId: interview.sessionId || undefined,
+        jobRequirementName: jobRequirement?.name || undefined,
+        jobRequirementDesc: jobRequirement?.description || undefined,
+      });
+      if (!res.ok || !res.body) {
+        interview.clearAppError();
+        throw new Error(`上传失败 (HTTP ${res.status})`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        let pos;
+        while ((pos = buffer.indexOf('\n\n')) !== -1) {
+          const message = buffer.slice(0, pos);
+          buffer = buffer.slice(pos + 2);
+
+          if (message.startsWith('data: ')) {
+            const data = message.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const event: AudioUploadProgressEvent = JSON.parse(data);
+              interview.loadAudioResult(event);
+            } catch {
+              // Ignore parse errors for non-JSON data
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Audio upload failed:', e);
+      const msg = e instanceof Error ? e.message : '音频上传失败';
+      interview.setAppError(msg);
+    }
+  }, [interview.sessionId, interview.loadAudioResult, interview.setAppError]);
+
   return (
     <MainLayout
       candidate={interview.candidate}
@@ -182,7 +231,7 @@ function App() {
       questionsRaw={interview.questionsRaw}
       followUpRaw={interview.followUpRaw}
       lastFollowUpRaw={interview.lastFollowUpRaw}
-      evaluationRaw={interview.evaluationRaw}
+      evaluationResult={interview.evaluationResult}
       isEvaluating={interview.isEvaluating}
       psychologyRaw={interview.psychologyRaw}
       isPsychologyAnalyzing={interview.isPsychologyAnalyzing}
@@ -221,6 +270,8 @@ function App() {
       mode={mode}
       onModeChange={handleModeChange}
       systemAudioError={systemAudioError}
+      onUploadAudio={handleUploadAudio}
+      audioUploadStatus={interview.audioUploadStatus}
     />
   );
 }

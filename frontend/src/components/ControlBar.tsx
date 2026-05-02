@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import styles from './ControlBar.module.css';
 import type { InterviewStatus } from '../types';
 
@@ -10,6 +10,9 @@ interface Props {
   onResume: () => void;
   onStop: () => void;
   disabled?: boolean;
+  audioUploadStatus: string | null;
+  onUploadAudio: (file: File, jobRequirement?: { name: string; description: string } | null) => void;
+  jobRequirement?: { name: string; description: string } | null;
 }
 
 export const ControlBar: React.FC<Props> = ({
@@ -20,16 +23,50 @@ export const ControlBar: React.FC<Props> = ({
   onPause,
   onResume,
   onStop,
+  audioUploadStatus,
+  onUploadAudio,
+  jobRequirement,
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onUploadAudio(file, jobRequirement);
+      e.target.value = '';
+    }
+  };
+
   return (
     <div className={styles['control-bar']}>
       {/* Action buttons */}
       <div className={styles['action-buttons']}>
         {status === 'idle' && (
-          <button className="btn btn-start" onClick={onStart} disabled={disabled}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" /></svg>
-            {disabled ? '请先上传简历' : '开始录音'}
-          </button>
+          <>
+            <button className="btn btn-start" onClick={onStart} disabled={disabled}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" /></svg>
+              {disabled ? '请先上传简历' : '开始录音'}
+            </button>
+            <button
+              className={`btn btn-secondary ${styles['btn-upload-audio']}`}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!!audioUploadStatus}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              {audioUploadStatus || '上传音频文件'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".wav,.mp3,.m4a,.flac,.ogg,.aac,.wma"
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
+            />
+          </>
         )}
         {status === 'recording' && (
           <button className="btn btn-pause" onClick={onPause}>

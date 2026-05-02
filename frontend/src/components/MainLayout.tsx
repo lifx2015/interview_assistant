@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import styles from './MainLayout.module.css';
-import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem, BankQuestionGroup, JobRequirement, InterviewMode } from '../types';
+import type { CandidateInfo, InterviewStatus, SpeakerRole, TranscriptEntry, InterviewListItem, BankQuestionGroup, JobRequirement, InterviewMode, EvaluationResult } from '../types';
 import type { WSStatus } from '../hooks/useWebSocket';
 import { CandidatePanel } from './CandidatePanel';
 import { NotePanel } from './NotePanel';
@@ -12,6 +12,7 @@ import { InterviewListPanel } from './InterviewListPanel';
 import { StatusBar } from './StatusBar';
 import { LandingView } from './LandingView';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { PsychologyDashboard } from './PsychologyDashboard';
 import { Link } from 'react-router-dom';
 
 interface Props {
@@ -27,7 +28,7 @@ interface Props {
   questionsRaw: string;
   followUpRaw: string;
   lastFollowUpRaw: string;
-  evaluationRaw: string;
+  evaluationResult: EvaluationResult | null;
   isEvaluating: boolean;
   psychologyRaw: string;
   isPsychologyAnalyzing: boolean;
@@ -64,6 +65,8 @@ interface Props {
   onModeChange: (mode: InterviewMode) => void;
   systemAudioError: string | null;
   partialByRole: Record<SpeakerRole, string>;
+  audioUploadStatus: string | null;
+  onUploadAudio: (file: File, jobRequirement?: { name: string; description: string } | null) => void;
 }
 
 type BottomTab = 'transcript' | 'evaluation' | 'notes' | 'psychology';
@@ -72,7 +75,7 @@ export const MainLayout: React.FC<Props> = ({
   candidate, sessionId, status, currentRole,
   transcript, pendingSentences, currentPartial, isAnalyzing,
   isGeneratingQuestions, questionsRaw, followUpRaw, lastFollowUpRaw,
-  evaluationRaw, isEvaluating, psychologyRaw, isPsychologyAnalyzing,
+  evaluationResult, isEvaluating, psychologyRaw, isPsychologyAnalyzing,
   noteContent, onNoteChange,
   onUploadSuccess, onStart, onPause, onResume,
   onStop, onGenerateQuestions,
@@ -82,8 +85,10 @@ export const MainLayout: React.FC<Props> = ({
   onClearAppError, onClearWsError, onReconnect, onSetJobRequirement,
   onTriggerFollowUp, onTriggerPsychology,
   voiceprintEnabled, mode, onModeChange, systemAudioError, partialByRole,
+  audioUploadStatus, onUploadAudio,
 }) => {
   const [leftWidth, setLeftWidth] = useState(340);
+  const [bottomHeight, setBottomHeight] = useState(320);
   const [isDragging, setIsDragging] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [bottomTab, setBottomTab] = useState<BottomTab>('transcript');
@@ -92,20 +97,22 @@ export const MainLayout: React.FC<Props> = ({
   const [viewPhase, setViewPhase] = useState<'landing' | 'transitioning' | 'workspace'>(sessionId ? 'workspace' : 'landing');
   const containerRef = useRef<HTMLDivElement>(null);
   const prevJobRequirementIdRef = useRef<string>('');
-  const dragging = useRef<'left' | null>(null);
+  const dragging = useRef<'left' | 'bottom' | null>(null);
   const dragOffset = useRef(0);
 
-  const startDrag = useCallback((side: 'left') => (e: React.MouseEvent) => {
+  const startDrag = useCallback((side: 'left' | 'bottom') => (e: React.MouseEvent) => {
     e.preventDefault();
     dragging.current = side;
     setIsDragging(true);
-    document.body.style.cursor = 'col-resize';
+    document.body.style.cursor = side === 'left' ? 'col-resize' : 'row-resize';
     document.body.style.userSelect = 'none';
-    dragOffset.current = e.clientX - leftWidth;
+    dragOffset.current = side === 'left' ? e.clientX - leftWidth : e.clientY + bottomHeight;
 
     const onMouseMove = (ev: MouseEvent) => {
       if (dragging.current === 'left') {
         setLeftWidth(Math.max(240, Math.min(600, ev.clientX - dragOffset.current)));
+      } else if (dragging.current === 'bottom') {
+        setBottomHeight(Math.max(150, Math.min(600, dragOffset.current - ev.clientY)));
       }
     };
 
@@ -120,7 +127,7 @@ export const MainLayout: React.FC<Props> = ({
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [leftWidth]);
+  }, [leftWidth, bottomHeight]);
 
   useEffect(() => {
     fetch('/api/job-requirement/list')
@@ -298,6 +305,8 @@ export const MainLayout: React.FC<Props> = ({
           selectedJobRequirementId={selectedJobRequirementId}
           onJobRequirementChange={setSelectedJobRequirementId}
           onUploadSuccess={handleLandingUpload}
+          onUploadAudio={onUploadAudio}
+          audioUploadStatus={audioUploadStatus}
           isExiting={viewPhase === 'transitioning'}
         />
       )}
@@ -338,7 +347,8 @@ export const MainLayout: React.FC<Props> = ({
               isAnalyzing={isAnalyzing}
             />
           </div>
-          <div className={`${styles['center-bottom']} glow-card`}>
+          <div className={styles['resize-handle-v']} onMouseDown={startDrag('bottom')} />
+          <div className={`${styles['center-bottom']} glow-card`} style={{ height: bottomHeight }}>
             <div className={styles['center-bottom-tabs']}>
               <button className={`${styles['right-tab']} ${bottomTab === 'transcript' ? styles.active : ''}`} onClick={() => setBottomTab('transcript')}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -356,7 +366,7 @@ export const MainLayout: React.FC<Props> = ({
                   <line x1="16" y1="17" x2="8" y2="17" />
                 </svg>
                 面试评估
-                {evaluationRaw && !isEvaluating && <span className={styles['tab-dot']} />}
+                {evaluationResult && !isEvaluating && <span className={styles['tab-dot']} />}
               </button>
               <button className={`${styles['right-tab']} ${bottomTab === 'notes' ? styles.active : ''}`} onClick={() => setBottomTab('notes')}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -381,52 +391,25 @@ export const MainLayout: React.FC<Props> = ({
                   <TranscriptPanel status={status} transcript={transcript} pendingSentences={pendingSentences} currentPartial={currentPartial} currentRole={currentRole} mode={mode} partialByRole={partialByRole} />
                   <ControlBar status={status} isAnalyzing={isAnalyzing}
                     onStart={onStart} onPause={onPause} onResume={onResume}
-                    onStop={onStop} disabled={!sessionId} />
+                    onStop={onStop} disabled={!sessionId}
+                    audioUploadStatus={audioUploadStatus}
+                    onUploadAudio={onUploadAudio}
+                    jobRequirement={selectedJobRequirement ? { name: selectedJobRequirement.name, description: selectedJobRequirement.description } : null} />
                 </div>
               )}
               {bottomTab === 'evaluation' && (
-                <AnalysisPanel analysisRaw={evaluationRaw} isAnalyzing={isEvaluating} jobRequirementName={selectedJobRequirement?.name} />
+                <AnalysisPanel evaluationResult={evaluationResult} isEvaluating={isEvaluating} jobRequirementName={selectedJobRequirement?.name} />
               )}
               {bottomTab === 'notes' && (
                 <NotePanel value={noteContent} onChange={onNoteChange} />
               )}
               {bottomTab === 'psychology' && (
-                <div className={styles['psychology-tab-content']}>
-                  <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)' }}>
-                    <button
-                      onClick={onTriggerPsychology}
-                      disabled={status !== 'recording' && status !== 'paused' || isPsychologyAnalyzing}
-                      style={{
-                        width: '100%',
-                        padding: '8px 16px',
-                        border: '1px solid var(--accent-amber)',
-                        background: 'rgba(255, 170, 0, 0.08)',
-                        color: 'var(--accent-amber)',
-                        borderRadius: 6,
-                        cursor: (status === 'recording' || status === 'paused') && !isPsychologyAnalyzing ? 'pointer' : 'not-allowed',
-                        fontSize: 13,
-                        opacity: (status === 'recording' || status === 'paused') && !isPsychologyAnalyzing ? 1 : 0.5,
-                      }}
-                    >
-                      {isPsychologyAnalyzing ? '⏳ 分析中...' : '🔍 分析心理状态'}
-                    </button>
-                    {status !== 'recording' && status !== 'paused' && <p style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>录音开始后可手动触发</p>}
-                  </div>
-                  {psychologyRaw ? (
-                    <div style={{ padding: '8px 12px', flex: 1, overflow: 'auto' }}>
-                      <MarkdownRenderer content={psychologyRaw} />
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, height: '100%', color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', padding: 20 }}>
-                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" />
-                        <path d="M12 16v-4" />
-                        <path d="M12 8h.01" />
-                      </svg>
-                      <p>点击上方按钮分析候选人心理状态</p>
-                    </div>
-                  )}
-                </div>
+                <PsychologyDashboard
+                  psychologyRaw={psychologyRaw}
+                  isPsychologyAnalyzing={isPsychologyAnalyzing}
+                  isRecordingOrPaused={status === 'recording' || status === 'paused'}
+                  onTriggerPsychology={onTriggerPsychology}
+                />
               )}
             </div>
           </div>

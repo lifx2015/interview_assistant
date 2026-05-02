@@ -237,7 +237,51 @@ async def interview_evaluation_stream(
         yield chunk
 
 
-async def psychology_analyze_stream(
+async def interview_evaluation(
+    resume_context: str,
+    qa_history: list[dict],
+    job_requirement: dict | None = None,
+) -> dict:
+    """Generate overall interview evaluation (non-streaming, returns parsed JSON)."""
+    qa_text = ""
+    for i, qa in enumerate(qa_history, 1):
+        qa_text += f"第{i}轮 - 面试官: {qa.get('question', '')}\n"
+        qa_text += f"第{i}轮 - 候选人: {qa.get('answer', '')}\n\n"
+
+    jr_text = ""
+    if job_requirement:
+        jr_name = job_requirement.get("name", "")
+        jr_desc = job_requirement.get("description", "")
+        if jr_name:
+            jr_text = f"岗位：{jr_name}\n"
+        if jr_desc:
+            jr_text += f"岗位要求：{jr_desc}\n"
+
+    prompt = STAR_ANALYSIS_PROMPT.format(
+        resume_context=resume_context[:2000],
+        qa_history=qa_text,
+        job_requirement=jr_text,
+    )
+
+    loop = asyncio.get_running_loop()
+    resp = await loop.run_in_executor(
+        None,
+        lambda: Generation.call(
+            model=settings.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            result_format="message",
+        ),
+    )
+
+    if resp is None or resp.output is None or not resp.output.choices:
+        logger.error("面试评估 API 返回异常")
+        raise ValueError("面试评估 API 调用失败")
+
+    content = resp.output.choices[0].message.content
+    return _extract_json(content)
+
+
+async def psychology_analysis_stream(
     resume_context: str,
     current_question: str,
     recent_sentences: str,

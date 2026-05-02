@@ -21,8 +21,9 @@ from backend.services.asr_service import ASRService
 from backend.services.aec_service import AECService
 from backend.services.llm_service import (
     incremental_analyze_stream,
+    interview_evaluation,
     interview_evaluation_stream,
-    psychology_analyze_stream,
+    psychology_analysis_stream,
 )
 from backend.services.voiceprint_service import voiceprint_service, pcm_file_to_wav
 
@@ -133,6 +134,12 @@ class ASRSessionHandler:
         self.recent_audio_chunks: list[bytes] = []
         self.voiceprint_accumulated_bytes = 0
         self.voiceprint_switch_count = 0
+
+        # Dual-track audio buffers for voiceprint cross-verification
+        self.dual_track_audio_buffers: dict[str, bytearray] = {
+            "interviewer": bytearray(),
+            "candidate": bytearray(),
+        }
 
         self.job_requirement: dict | None = None
         self.psychology_in_flight = False
@@ -405,13 +412,23 @@ class ASRSessionHandler:
         )
 
     def _on_interviewer_sentence(self, text: str, sentence_id: int):
-        asyncio.run_coroutine_threadsafe(
-            self.result_queue.put({
-                "type": "sentence", "text": text,
-                "sentence_id": sentence_id, "role": "interviewer",
-            }),
-            self.loop,
-        )
+        if self.session_mode == "dual-track" and self.voiceprint_enabled:
+            asyncio.run_coroutine_threadsafe(
+                self.result_queue.put({
+                    "type": "sentence_pending", "text": text,
+                    "sentence_id": sentence_id, "role": "interviewer",
+                    "source": "dual-track",
+                }),
+                self.loop,
+            )
+        else:
+            asyncio.run_coroutine_threadsafe(
+                self.result_queue.put({
+                    "type": "sentence", "text": text,
+                    "sentence_id": sentence_id, "role": "interviewer",
+                }),
+                self.loop,
+            )
 
     def _on_candidate_partial(self, text: str, sentence_id: int):
         asyncio.run_coroutine_threadsafe(
@@ -423,13 +440,23 @@ class ASRSessionHandler:
         )
 
     def _on_candidate_sentence(self, text: str, sentence_id: int):
-        asyncio.run_coroutine_threadsafe(
-            self.result_queue.put({
-                "type": "sentence", "text": text,
-                "sentence_id": sentence_id, "role": "candidate",
-            }),
-            self.loop,
-        )
+        if self.session_mode == "dual-track" and self.voiceprint_enabled:
+            asyncio.run_coroutine_threadsafe(
+                self.result_queue.put({
+                    "type": "sentence_pending", "text": text,
+                    "sentence_id": sentence_id, "role": "candidate",
+                    "source": "dual-track",
+                }),
+                self.loop,
+            )
+        else:
+            asyncio.run_coroutine_threadsafe(
+                self.result_queue.put({
+                    "type": "sentence", "text": text,
+                    "sentence_id": sentence_id, "role": "candidate",
+                }),
+                self.loop,
+            )
 
     # ── Voiceprint identification ──────────────────────────
 
@@ -581,7 +608,7 @@ class ASRSessionHandler:
                 question_context += "\n[追问] " + " ".join(self.follow_up_questions[-3:])
 
             await self.ws.send_json({"type": "psychology_start"})
-            async for chunk in psychology_analyze_stream(
+            async for chunk in psychology_analysis_stream(
                 resume_context=resume_ctx,
                 current_question=question_context,
                 recent_sentences=sentence,
@@ -617,7 +644,7 @@ class ASRSessionHandler:
                 fallback_answer = accumulated[-300:] if accumulated else sentence
                 question_context = f"[当前问题上下文缺失]\n[候选人当前回答片段] {fallback_answer}"
 
-            async for chunk in psychology_analyze_stream(
+            async for chunk in psychology_analysis_stream(
                 resume_context=resume_ctx,
                 current_question=question_context,
                 recent_sentences=sentence,
@@ -628,6 +655,89 @@ class ASRSessionHandler:
         except Exception:
             logger.exception("Manual psychology analysis failed")
 
+    # ── Text routing helper ────────────────────────────────
+
+    def _append_text_by_role(self, role: str, text: str):
+        """Append confirmed text to the correct role buffer and update round state."""
+        if role == "interviewer":
+            self.interviewer_text.append(text)
+            if self.has_candidate_spoken_this_round:
+                self.follow_up_questions.append(text)
+            else:
+                self.main_question += text
+            self.current_question = self.main_question
+        else:
+            self.candidate_text.append(text)
+            self.has_candidate_spoken_this_round = True
+
+    # ── Dual-track voiceprint verification ─────────────────
+
+    async def _verify_dual_track_sentence(self, item: dict):
+        """Verify a dual-track sentence's role via voiceprint, correcting crosstalk."""
+        tagged_role = item["role"]
+        text = item["text"]
+        sentence_id = item["sentence_id"]
+
+        audio_data = self._get_recent_audio_for_role(tagged_role)
+        if not audio_data or len(audio_data) < self.VOICEPRINT_MIN_BYTES:
+            # Not enough audio for voiceprint, trust the tag
+            logger.debug("[DUAL-TRACK] Insufficient audio for voiceprint (%d bytes), trusting tag=%s",
+                         len(audio_data) if audio_data else 0, tagged_role)
+            await self.ws.send_json({
+                "type": "sentence", "text": text,
+                "sentence_id": sentence_id, "role": tagged_role,
+            })
+            self._append_text_by_role(tagged_role, text)
+            return
+
+        # Run voiceprint identification
+        verified_role = await self._run_dual_track_voiceprint(audio_data, tagged_role)
+
+        if verified_role != tagged_role:
+            logger.warning("[DUAL-TRACK] Role mismatch: tagged=%s, verified=%s, text='%s'",
+                           tagged_role, verified_role, text[:50])
+
+        await self.ws.send_json({
+            "type": "sentence", "text": text,
+            "sentence_id": sentence_id, "role": verified_role,
+        })
+        self._append_text_by_role(verified_role, text)
+
+    def _get_recent_audio_for_role(self, role: str) -> bytes:
+        """Get recent audio bytes for voiceprint verification."""
+        buf = self.dual_track_audio_buffers.get(role, bytearray())
+        return bytes(buf)
+
+    async def _run_dual_track_voiceprint(self, audio_data: bytes, tagged_role: str) -> str:
+        """Run voiceprint identification and return the verified role."""
+        def do_identification():
+            try:
+                result = voiceprint_service.identify_speaker(
+                    audio_data=audio_data,
+                    threshold=self.INTERVIEWER_CONFIDENCE_THRESHOLD,
+                )
+                logger.info("[DUAL-TRACK-VOICEPRINT] tagged=%s, matched=%s, role=%s, confidence=%.2f",
+                            tagged_role, result.get("matched"), result.get("role"),
+                            result.get("confidence", 0))
+                return result
+            except Exception as e:
+                logger.error("[DUAL-TRACK-VOICEPRINT] Failed: %s", e)
+                return None
+
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(
+                _voiceprint_executor, do_identification
+            )
+        except Exception as e:
+            logger.error("[DUAL-TRACK-VOICEPRINT] Executor failed: %s", e)
+            return tagged_role
+
+        if result and result.get("matched"):
+            return result["role"]
+
+        # No confident match — trust the original tag
+        return tagged_role
+
     # ── Forward results task ───────────────────────────────
 
     async def _forward_results(self):
@@ -636,11 +746,19 @@ class ASRSessionHandler:
             while True:
                 item = await self.result_queue.get()
                 forward_time = time.monotonic()
-                logger.debug("[TIMING] forward_results: type=%s role=%s time=%.3f",
-                             item["type"], item.get("role"), forward_time)
+                logger.debug("[TIMING] forward_results: type=%s role=%s source=%s time=%.3f",
+                             item["type"], item.get("role"), item.get("source"), forward_time)
 
                 if item["type"] == "error":
                     await self.ws.send_json(item)
+                    continue
+
+                # Dual-track voiceprint verification
+                if item["type"] == "sentence_pending" and item.get("source") == "dual-track":
+                    _safe_create_task(
+                        self._verify_dual_track_sentence(item),
+                        "dual_track_voiceprint_verify"
+                    )
                     continue
 
                 await self.ws.send_json(item)
@@ -650,17 +768,7 @@ class ASRSessionHandler:
                 if item["type"] not in ("sentence", "sentence_confirmed"):
                     continue
 
-                if item["role"] == "interviewer":
-                    self.interviewer_text.append(item["text"])
-                    if self.has_candidate_spoken_this_round:
-                        self.follow_up_questions.append(item["text"])
-                    else:
-                        self.main_question += item["text"]
-                    self.current_question = self.main_question
-                    continue
-
-                self.candidate_text.append(item["text"])
-                self.has_candidate_spoken_this_round = True
+                self._append_text_by_role(item["role"], item["text"])
         except asyncio.CancelledError:
             logger.info("[ForwardResults] Task cancelled")
         except Exception as e:
@@ -681,15 +789,40 @@ class ASRSessionHandler:
             if not self.asr_started:
                 self.start_asr()
 
+            # Max buffer: 6 seconds of 16kHz 16-bit audio = 192000 bytes
+            MAX_AUDIO_BUFFER = 192000
+
             if role_byte == 0x01:
-                # Mic audio → interviewer ASR immediately (no AEC blocking)
-                if self.asr_started:
-                    self.interviewer_asr.send_audio(pcm_data)
-                # Also feed to AEC buffer (for future AEC-enabled path)
+                # Buffer for voiceprint cross-verification
+                self.dual_track_audio_buffers["interviewer"].extend(pcm_data)
+                if len(self.dual_track_audio_buffers["interviewer"]) > MAX_AUDIO_BUFFER:
+                    self.dual_track_audio_buffers["interviewer"] = \
+                        self.dual_track_audio_buffers["interviewer"][-MAX_AUDIO_BUFFER:]
+
+                # Feed to AEC buffer
                 self.aec_service.feed_mic(pcm_data)
-                self._write_recording("interviewer", pcm_data)
+
+                if self.asr_started:
+                    if AECService.is_available():
+                        # AEC available: process buffered mic audio through AEC
+                        cleaned_chunks = self.aec_service.process_available()
+                        if cleaned_chunks:
+                            for chunk in cleaned_chunks:
+                                self.interviewer_asr.send_audio(chunk)
+                                self._write_recording("interviewer", chunk)
+                        # If no AEC output yet (waiting for sys audio), audio stays buffered
+                    else:
+                        # No AEC: send mic audio directly
+                        self.interviewer_asr.send_audio(pcm_data)
+                        self._write_recording("interviewer", pcm_data)
             elif role_byte == 0x02:
-                # System audio → candidate ASR immediately
+                # Buffer for voiceprint cross-verification
+                self.dual_track_audio_buffers["candidate"].extend(pcm_data)
+                if len(self.dual_track_audio_buffers["candidate"]) > MAX_AUDIO_BUFFER:
+                    self.dual_track_audio_buffers["candidate"] = \
+                        self.dual_track_audio_buffers["candidate"][-MAX_AUDIO_BUFFER:]
+
+                # System audio → candidate ASR directly
                 self.candidate_asr.send_audio(pcm_data)
                 # Feed to AEC buffer as reference
                 self.aec_service.feed_sys(pcm_data)
@@ -740,17 +873,24 @@ class ASRSessionHandler:
             self.session["mode"] = self.session_mode
 
             self.stop_asr()
-            self.voiceprint_enabled = self.session_mode == "single-track" and self.voiceprint_registered
+            self.voiceprint_enabled = self.voiceprint_registered
 
             if self.session_mode == "dual-track":
                 self.interviewer_asr = ASRService()
                 self.candidate_asr = ASRService()
                 self.aec_service = AECService()
 
+                if self.voiceprint_registered:
+                    await self.ws.send_json({
+                        "type": "voiceprint_status",
+                        "enabled": True,
+                        "message": "双轨模式声纹交叉验证已启用",
+                    })
+
                 await self.ws.send_json({
                     "type": "mode_status",
                     "mode": "dual-track",
-                    "message": "双轨模式已启用，角色由音频源自动区分",
+                    "message": "双轨模式已启用，角色由音频源自动区分" + ("，声纹交叉验证已启用" if self.voiceprint_registered else ""),
                     "aec_available": AECService.is_available(),
                 })
             else:
@@ -821,12 +961,16 @@ class ASRSessionHandler:
 
             if qa:
                 await self.ws.send_json({"type": "evaluation_start"})
-                async for chunk in interview_evaluation_stream(
-                    resume_context=resume_ctx,
-                    qa_history=qa,
-                    job_requirement=self.job_requirement,
-                ):
-                    await self.ws.send_json({"type": "evaluation_stream", "data": chunk})
+                try:
+                    result = await interview_evaluation(
+                        resume_context=resume_ctx,
+                        qa_history=qa,
+                        job_requirement=self.job_requirement,
+                    )
+                    await self.ws.send_json({"type": "evaluation_result", "data": result})
+                except Exception as e:
+                    logger.error("Evaluation failed: %s", e)
+                    await self.ws.send_json({"type": "evaluation_error", "data": str(e)})
                 await self.ws.send_json({"type": "evaluation_complete"})
 
             return True  # signal to break the message loop

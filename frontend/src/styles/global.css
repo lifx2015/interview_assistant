@@ -137,6 +137,16 @@ body {
   box-shadow: 0 0 20px rgba(0, 102, 255, 0.3);
 }
 
+.btn-secondary {
+  border-color: rgba(0, 212, 255, 0.3);
+  color: var(--accent-cyan);
+}
+
+.btn-secondary:hover {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 16px rgba(0, 212, 255, 0.2);
+}
+
 .tag {
   display: inline-block;
   padding: 3px 10px;
